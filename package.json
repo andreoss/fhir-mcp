@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "engines": { "node": ">=22" },
+  "bin": { "fhir-mcp": "dist/host/cli.js" },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
