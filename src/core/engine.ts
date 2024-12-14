@@ -23,6 +23,8 @@ export interface Bundle {
 export interface SearchQuery {
   readonly type: string
   readonly parameters: ReadonlyArray<readonly [string, string]>
+  readonly offset?: number
+  readonly limit?: number
 }
 
 export interface Engine {

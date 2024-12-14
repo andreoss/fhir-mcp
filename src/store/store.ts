@@ -208,13 +208,23 @@ const make = (connection: DuckDBConnection): Store => {
         )`
       })
       const where = ["r.resource_type = ?", "r.is_current", "not r.deleted", ...clauses].join(" and ")
-      const rows = yield* query(
+      const counted = yield* query(
         connection,
-        `select r.body from resource r where ${where} order by r.surrogate_id`,
+        "select count(*) as total from resource r where " + where,
         values
       )
+      const total = Number(counted[0]?.["total"] ?? 0)
+      const offset = request.offset ?? 0
+      const limit = request.limit
+      const paged = limit === undefined ? values : [...values, limit, offset]
+      const window = limit === undefined ? "" : " limit ? offset ?"
+      const rows = yield* query(
+        connection,
+        "select r.body from resource r where " + where + " order by r.surrogate_id" + window,
+        paged
+      )
       const entry = rows.map((row) => ({ resource: JSON.parse(String(row["body"])) as FhirResource }))
-      return { resourceType: "Bundle", type: "searchset", total: entry.length, entry } satisfies Bundle
+      return { resourceType: "Bundle", type: "searchset", total, entry } satisfies Bundle
     })
 
   const resourceTypes = () => Effect.succeed(types())
