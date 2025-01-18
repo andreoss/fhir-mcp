@@ -37,6 +37,7 @@ const Fields = Schema.Struct({
   FHIR_HTTP_PORT: Schema.optionalWith(Port, { default: () => 8080 }),
   FHIR_HTTP_ORIGINS: Schema.optionalWith(OriginList, { default: () => [] as ReadonlyArray<string> }),
   FHIR_STORE_PATH: Schema.optionalWith(Schema.String, { default: () => ":memory:" }),
+  FHIR_ALLOW_WRITE: Schema.optionalWith(oneOf("false", "true"), { default: () => "false" as const }),
   FHIR_TERMINOLOGY_DIR: Schema.optional(Schema.String),
   FHIR_LOG_LEVEL: Schema.optionalWith(oneOf("debug", "info", "warn", "error"), {
     default: () => "info" as const
@@ -54,6 +55,7 @@ export interface Config {
     readonly origins: ReadonlyArray<string>
   }
   readonly store: { readonly path: string }
+  readonly allowWrite: boolean
   readonly terminologyDir: string | undefined
   readonly logLevel: LogLevel
 }
@@ -100,6 +102,7 @@ const shape = (decoded: typeof Fields.Type): Config => ({
     origins: decoded.FHIR_HTTP_ORIGINS
   },
   store: { path: decoded.FHIR_STORE_PATH },
+  allowWrite: decoded.FHIR_ALLOW_WRITE === "true",
   terminologyDir: decoded.FHIR_TERMINOLOGY_DIR,
   logLevel: decoded.FHIR_LOG_LEVEL
 })

@@ -238,6 +238,11 @@ const make = (connection: DuckDBConnection): Store => {
   return { migrate, schemaVersion, read, put, remove, search, versions, resourceTypes, searchParameters }
 }
 
+export const engineOn = (connection: DuckDBConnection): Effect.Effect<Store, Failure> => {
+  const store = make(connection)
+  return Effect.as(store.migrate(), store)
+}
+
 export const open = (path: string): Effect.Effect<Store, Failure, Scope.Scope> =>
   Effect.acquireRelease(
     Effect.tryPromise({

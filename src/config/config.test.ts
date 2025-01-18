@@ -96,3 +96,17 @@ describe("config", () => {
     expect(value(run({ FHIR_HTTP_PORT: "   " })).http.port).toBe(8080)
   })
 })
+
+describe("write toggle", () => {
+  it("does not permit writing unless it is asked for", () => {
+    expect(value(run({})).allowWrite).toBe(false)
+  })
+
+  it("permits writing when it is asked for", () => {
+    expect(value(run({ FHIR_ALLOW_WRITE: "true" })).allowWrite).toBe(true)
+  })
+
+  it("refuses a value that is neither", () => {
+    expect(failure(run({ FHIR_ALLOW_WRITE: "yes" })).problems[0]).toContain("FHIR_ALLOW_WRITE")
+  })
+})
