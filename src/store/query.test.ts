@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { Effect, Exit } from "effect"
 import { DuckDBInstance } from "@duckdb/node-api"
 import type { DuckDBConnection } from "@duckdb/node-api"
+import { emit } from "../params/reindex.js"
 import { parse } from "../search/parse.js"
 import { ensure, execute, index, plan } from "./query.js"
 import type { IndexEntry } from "./query.js"
@@ -343,6 +344,30 @@ describe("query, date values", () => {
       expect(await found(db, "Encounter", [["date", "eb2024-04-01"]])).toEqual(["e1"])
       expect(await found(db, "Encounter", [["date", "ne2024-03-05"]])).toEqual(["e2"])
       expect(await found(db, "Encounter", [["date", "ap2024-03-05"]])).toEqual(["e1"])
+    }))
+
+  it("matches an emitted date by every prefix that admits its day", () =>
+    withDb(async (db) => {
+      const emitted = emit(
+        { type: "Encounter", name: "date", valueType: "date", path: ["date"], targets: [], components: [] },
+        "2020-01-15"
+      )
+      if (emitted._tag !== "Typed") throw new Error("expected an entry")
+      const surrogate = await db.put("Encounter", "e1")
+      await db.entries(surrogate, "Encounter", [emitted.entry])
+      for (const value of [
+        "2020-01-15",
+        "ge2020-01-15",
+        "le2020-01-15",
+        "gt2020-01-14",
+        "lt2020-01-16",
+        "sa2020-01-14",
+        "eb2020-01-16",
+        "ge2020"
+      ]) {
+        expect(await found(db, "Encounter", [["date", value]])).toEqual(["e1"])
+      }
+      expect(await found(db, "Encounter", [["date", "gt2020-01-15"]])).toEqual([])
     }))
 
   it("compares the stamp the store keeps for last updated", () =>

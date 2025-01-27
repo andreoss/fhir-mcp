@@ -119,10 +119,15 @@ const precisionOf = (
 
 const iso = (at: number): string => new Date(at).toISOString()
 
-const dateRange = (raw: string, name: string): Effect.Effect<DateValue, Failure> => {
-  const { prefix, rest } = withPrefix(raw)
-  const found = DATE.exec(rest)
-  if (found === null) return refuse(`${name}: expected a date, got ${raw}`)
+export interface Span {
+  readonly precision: Precision
+  readonly start: string
+  readonly end: string
+}
+
+export const spanOf = (text: string): Span | undefined => {
+  const found = DATE.exec(text)
+  if (found === null) return undefined
   const [, year, month, day, hour, minute, second, fraction, zone] = found
   const y = Number(year)
   const mo = month === undefined ? 1 : Number(month)
@@ -132,11 +137,11 @@ const dateRange = (raw: string, name: string): Effect.Effect<DateValue, Failure>
   const ss = second === undefined ? 0 : Number(second)
   const ms = fraction === undefined ? 0 : Math.floor(Number(`0${fraction}`) * 1000)
   if (mo < 1 || mo > 12 || d < 1 || hh > 23 || mi > 59 || ss > 59) {
-    return refuse(`${name}: expected a date, got ${raw}`)
+    return undefined
   }
   const probe = new Date(Date.UTC(y, mo - 1, d))
   if (probe.getUTCMonth() !== mo - 1 || probe.getUTCDate() !== d) {
-    return refuse(`${name}: expected a date, got ${raw}`)
+    return undefined
   }
   const offset = offsetOf(zone)
   const start = Date.UTC(y, mo - 1, d, hh, mi, ss, ms) - offset
@@ -153,14 +158,14 @@ const dateRange = (raw: string, name: string): Effect.Effect<DateValue, Failure>
             : precision === "second"
               ? start + 1000
               : start + 1
-  return Effect.succeed({
-    kind: "date",
-    prefix,
-    precision,
-    start: iso(start),
-    end: iso(end),
-    text: raw
-  })
+  return { precision, start: iso(start), end: iso(end) }
+}
+
+const dateRange = (raw: string, name: string): Effect.Effect<DateValue, Failure> => {
+  const { prefix, rest } = withPrefix(raw)
+  const found = spanOf(rest)
+  if (found === undefined) return refuse(`${name}: expected a date, got ${raw}`)
+  return Effect.succeed({ kind: "date", prefix, ...found, text: raw })
 }
 
 const token = (raw: string, name: string): Effect.Effect<TokenValue, Failure> => {
