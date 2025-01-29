@@ -10,7 +10,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "coverage": "vitest run --coverage"
+    "coverage": "vitest run --coverage",
+    "coverage:ci": "vitest run --coverage --coverage.reporter=json-summary --coverage.reporter=text-summary --coverage.reporter=lcov",
+    "tools": "node dist/tools/cli.js"
   },
   "dependencies": {
     "@duckdb/node-api": "1.5.5-r.4",
