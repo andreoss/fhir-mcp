@@ -1,4 +1,5 @@
 import { Effect, Layer, ManagedRuntime } from "effect"
+import { randomUUID } from "node:crypto"
 import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
@@ -11,8 +12,8 @@ import {
 import type { FhirEngine } from "../core/engine.js"
 import { call, tools } from "../agent/tools.js"
 import type { ToolSpec } from "../agent/tools.js"
-import { callWrite, writeTools } from "../agent/write.js"
-import type { Grant, Journal } from "../agent/write.js"
+import { Grant, callWrite, writeTools } from "../agent/write.js"
+import type { Journal } from "../agent/write.js"
 import type { Rules, Versions } from "../core/interactions.js"
 import { PINNED_REVISION, capabilities, negotiate } from "./revision.js"
 
@@ -58,9 +59,25 @@ export const build = (engine: Layer.Layer<FhirEngine>, writes?: Writes): Server 
     }
     const args = request.params.arguments ?? {}
     const result = writeNames.has(name) && writing !== undefined
-      ? await writing.runPromise(callWrite(name, args))
+      ? await writing.runPromise(
+          Effect.flatMap(Grant, (held) =>
+            Effect.provideService(callWrite(name, args), Grant, {
+              ...held,
+              correlation: randomUUID()
+            })
+          )
+        )
       : await runtime.runPromise(call(name, args))
-    return { content: [...result.content], isError: result.isError }
+    const content = [...result.content]
+    if (result.elided !== undefined) {
+      content.push({
+        type: "text" as const,
+        text: JSON.stringify({
+          elided: { returned: result.elided.returned, of: result.elided.of }
+        })
+      })
+    }
+    return { content, isError: result.isError }
   })
 
   const close = server.close.bind(server)
