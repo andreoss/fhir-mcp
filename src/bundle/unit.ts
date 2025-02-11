@@ -5,6 +5,7 @@ import type { DuckDBConnection } from "@duckdb/node-api"
 import { Versions } from "../core/interactions.js"
 import { Unavailable } from "../core/outcome.js"
 import type { Failure } from "../core/outcome.js"
+import { exclusive } from "../store/lane.js"
 import { versionedOn } from "../store/versioned.js"
 import type { Versioned } from "../store/versioned.js"
 
@@ -62,9 +63,8 @@ export const unitOn = (connection: DuckDBConnection): Effect.Effect<Bound, Failu
       Effect.sync(() => {
         held = false
       }).pipe(Effect.zipRight(control(sql)))
-    const lane = yield* Effect.makeSemaphore(1)
     const within = <A, R>(work: Work<A, R>): Work<A, R> =>
-      lane.withPermits(1)(
+      exclusive(connection)(
         Effect.uninterruptibleMask((restore) =>
           start.pipe(
             Effect.zipRight(restore(work)),

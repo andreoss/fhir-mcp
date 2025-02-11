@@ -124,6 +124,20 @@ describe("versioned store", () => {
       expect(family(found)).toBe("Simpson")
     }))
 
+  it("keeps every insert that arrives together", () =>
+    withDb(async (db) => {
+      const ids = Array.from({ length: 10 }, (_, n) => `p${n}`)
+      await run(
+        Effect.all(
+          ids.map((id) => db.insertVersion(entry(id, 1, "Simpson"))),
+          { concurrency: "unbounded" }
+        )
+      )
+      for (const id of ids) {
+        expect((await run(db.current("Patient", id)))?.versionId).toBe(1)
+      }
+    }))
+
   it("marks a delete as a further version and erases nothing", () =>
     withDb(async (db) => {
       await run(db.insertVersion(entry("p1", 1, "Simpson")))
@@ -421,6 +435,15 @@ describe("interactions over real persistence", () => {
       expect(written.created).toBe(false)
       expect(written.changed).toBe(false)
       expect((await run(db.history("Patient", "p1"))).length).toBe(1)
+    }))
+
+  it("refuses a conditional create on a system-qualified criterion", () =>
+    world(async ({ run: go, exit: no, db }) => {
+      const held = { ...patient("Simpson"), identifier: [{ system: "sys", value: "v" }] }
+      await go(create("Patient", held, "p1"))
+      const result = await no(conditionalCreate("Patient", held, [["identifier", "sys|v"]]))
+      expect(tag(result)).toBe("Rejected")
+      expect((await run(db.matching("Patient", []))).map((one) => one.id)).toEqual(["p1"])
     }))
 
   it("soft deletes as a further version and answers gone", () =>

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { Effect, Layer } from "effect"
+import { Effect, Exit, Layer } from "effect"
 import type { Scope } from "effect"
 import { DuckDBInstance } from "@duckdb/node-api"
 import type { DuckDBConnection } from "@duckdb/node-api"
@@ -9,6 +9,7 @@ import type { FhirResource } from "../core/engine.js"
 import { Conflict, Rejected, Unavailable } from "../core/outcome.js"
 import type { Failure } from "../core/outcome.js"
 import { parametersOf, walk } from "./definitions.js"
+import { exclusive } from "./lane.js"
 
 const STATEMENTS: ReadonlyArray<string> = [
   `create sequence if not exists surrogate_id start 1`,
@@ -37,6 +38,8 @@ const STATEMENTS: ReadonlyArray<string> = [
 ]
 
 const MOMENT = "'%Y-%m-%dT%H:%M:%S.%gZ'"
+
+const QUALIFIED = /(?<!\\)\|/
 
 const FIELDS = `resource_type as type, logical_id as id, version_id,
   strftime(last_updated, ${MOMENT}) as last_updated, deleted, body`
@@ -114,10 +117,16 @@ const make = (connection: DuckDBConnection): Wired => {
     rows(connection, sql, values)
 
   const atomic = <A>(work: Effect.Effect<A, Failure>): Effect.Effect<A, Failure> =>
-    ask("begin transaction").pipe(
-      Effect.zipRight(work),
-      Effect.tap(() => ask("commit")),
-      Effect.tapError(() => Effect.ignore(ask("rollback")))
+    exclusive(connection)(
+      Effect.uninterruptibleMask((restore) =>
+        ask("begin transaction").pipe(
+          Effect.zipRight(restore(work)),
+          Effect.tap(() => ask("commit")),
+          Effect.onExit((exit) =>
+            Exit.isSuccess(exit) ? Effect.void : Effect.ignore(ask("rollback"))
+          )
+        )
+      )
     )
 
   const declared = (type: string, criteria: Criteria): Effect.Effect<void, Failure> => {
@@ -128,9 +137,18 @@ const make = (connection: DuckDBConnection): Wired => {
     const unknown = criteria
       .map(([name]) => name)
       .filter((name) => definitions[name] === undefined)
+    const qualified = criteria
+      .filter(([, value]) => QUALIFIED.test(value))
+      .map(([name]) => name)
     return unknown.length > 0
       ? Effect.fail(new Rejected({ reason: `unsupported criterion: ${unknown.join(", ")}` }))
-      : Effect.void
+      : qualified.length > 0
+        ? Effect.fail(
+            new Rejected({
+              reason: `system-qualified criteria are not supported: ${qualified.join(", ")}`
+            })
+          )
+        : Effect.void
   }
 
   const current = (type: string, id: string) =>

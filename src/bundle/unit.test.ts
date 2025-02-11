@@ -145,6 +145,30 @@ describe("bundle unit boundary", () => {
     expect(await rows("resource")).toBe(2)
   })
 
+  it("keeps a write made beside a unit that is undone", async () => {
+    const { bound, rows } = await wired()
+    const work = bound.store
+      .insertVersion(version("p1", 1, "Simpson"))
+      .pipe(
+        Effect.zipRight(Effect.sleep(50)),
+        Effect.zipRight(Effect.fail(new Rejected({ reason: "stop" })))
+      )
+    const both = Effect.all(
+      [
+        Effect.exit(bound.boundary.within(work)),
+        Effect.zipRight(
+          Effect.sleep(10),
+          bound.store.insertVersion(version("p2", 1, "Flanders"))
+        )
+      ],
+      { concurrency: 2 }
+    )
+    await run(both)
+    expect(await rows("resource")).toBe(1)
+    expect(await run(bound.store.current("Patient", "p1"))).toBeUndefined()
+    expect((await run(bound.store.current("Patient", "p2")))?.versionId).toBe(1)
+  })
+
   it("serves the store and the unit as one layer", async () => {
     const live = Layer.merge(layer(":memory:"), Layer.succeed(Rules, defaults))
     const work = Effect.gen(function* () {
