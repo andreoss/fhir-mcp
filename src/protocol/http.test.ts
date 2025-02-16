@@ -14,6 +14,7 @@ const config = (
   http: { host, port: 0, origins },
   store: { path: ":memory:" },
   allowWrite: false,
+  scopes: [],
   terminologyDir: undefined,
   logLevel: "info"
 })
@@ -674,6 +675,7 @@ describe("streamable http transport", () => {
       http: { host: "127.0.0.1", port: endpoint.port, origins: [ORIGIN] },
       store: { path: ":memory:" },
       allowWrite: false,
+      scopes: [],
       terminologyDir: undefined,
       logLevel: "info"
     }
