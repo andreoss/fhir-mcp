@@ -1,0 +1,130 @@
+{
+  "revision": "2025-03-26",
+  "fhirVersion": "4.0.1",
+  "software": {
+    "name": "fhir-mcp",
+    "version": "0.0.0"
+  },
+  "checks": [
+    {
+      "id": "interaction:create",
+      "met": true
+    },
+    {
+      "id": "interaction:delete",
+      "met": true
+    },
+    {
+      "id": "interaction:patch",
+      "met": true
+    },
+    {
+      "id": "interaction:read",
+      "met": true
+    },
+    {
+      "id": "interaction:search-type",
+      "met": true
+    },
+    {
+      "id": "interaction:update",
+      "met": true
+    },
+    {
+      "id": "param:Condition._id",
+      "met": true
+    },
+    {
+      "id": "param:Condition.clinicalstatus",
+      "met": true
+    },
+    {
+      "id": "param:Condition.code",
+      "met": true
+    },
+    {
+      "id": "param:Condition.subject",
+      "met": true
+    },
+    {
+      "id": "param:Encounter._id",
+      "met": true
+    },
+    {
+      "id": "param:Encounter.status",
+      "met": true
+    },
+    {
+      "id": "param:Encounter.subject",
+      "met": true
+    },
+    {
+      "id": "param:Observation._id",
+      "met": true
+    },
+    {
+      "id": "param:Observation.code",
+      "met": true
+    },
+    {
+      "id": "param:Observation.status",
+      "met": true
+    },
+    {
+      "id": "param:Observation.subject",
+      "met": true
+    },
+    {
+      "id": "param:Patient._id",
+      "met": true
+    },
+    {
+      "id": "param:Patient.birthdate",
+      "met": true
+    },
+    {
+      "id": "param:Patient.family",
+      "met": true
+    },
+    {
+      "id": "param:Patient.gender",
+      "met": true
+    },
+    {
+      "id": "param:Patient.given",
+      "met": true
+    },
+    {
+      "id": "param:Patient.identifier",
+      "met": true
+    },
+    {
+      "id": "system:capabilities",
+      "met": true
+    },
+    {
+      "id": "type:Condition",
+      "met": true
+    },
+    {
+      "id": "type:Encounter",
+      "met": true
+    },
+    {
+      "id": "type:Observation",
+      "met": true
+    },
+    {
+      "id": "type:Patient",
+      "met": true
+    }
+  ],
+  "unmet": [
+    "interaction:history-instance",
+    "interaction:vread",
+    "param:Patient.name",
+    "system:batch",
+    "system:transaction",
+    "type:Practitioner"
+  ]
+}
