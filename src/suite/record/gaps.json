@@ -3,6 +3,7 @@
     "src/agent/audit.ts",
     "src/agent/cursor.ts",
     "src/agent/elements.ts",
+    "src/agent/params.ts",
     "src/agent/tools.ts",
     "src/agent/write.ts",
     "src/auth/algs.ts",
@@ -58,8 +59,11 @@
     "src/host/cli.ts",
     "src/host/compose.ts",
     "src/host/health.ts",
+    "src/host/log.ts",
     "src/host/main.ts",
     "src/host/terminology.ts",
+    "src/host/typed.ts",
+    "src/host/wiring.ts",
     "src/jobs/limits.ts",
     "src/jobs/queue.ts",
     "src/jobs/service.ts",
@@ -152,11 +156,12 @@
     "src/versions/source.ts",
     "src/versions/version.ts"
   ],
-  "tests": 136,
+  "tests": 140,
   "tested": [
     "src/agent/audit.ts",
     "src/agent/cursor.ts",
     "src/agent/elements.ts",
+    "src/agent/params.ts",
     "src/agent/tools.ts",
     "src/agent/write.ts",
     "src/auth/audit.ts",
@@ -203,8 +208,11 @@
     "src/format/xml.ts",
     "src/host/compose.ts",
     "src/host/health.ts",
+    "src/host/log.ts",
     "src/host/main.ts",
     "src/host/terminology.ts",
+    "src/host/typed.ts",
+    "src/host/wiring.ts",
     "src/jobs/limits.ts",
     "src/jobs/queue.ts",
     "src/jobs/service.ts",
@@ -309,6 +317,11 @@
     "src/versions/source.ts"
   ],
   "gaps": [
+    {
+      "path": "src/agent/params.ts",
+      "reason": "unnamed",
+      "name": "OperationName"
+    },
     {
       "path": "src/auth/algs.ts",
       "reason": "unnamed",

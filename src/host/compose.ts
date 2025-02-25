@@ -8,10 +8,20 @@ import { FhirEngine } from "../core/engine.js"
 import { Grant, Journal } from "../agent/write.js"
 import { Unavailable } from "../core/outcome.js"
 import type { Failure } from "../core/outcome.js"
-import { versionedOn } from "../store/versioned.js"
-import { engineOn } from "../store/store.js"
+import type { Metrics } from "../obs/metrics.js"
+import type { TerminologyPort } from "../terminology/port.js"
+import { observed } from "./log.js"
+import { supplied } from "./terminology.js"
+import { binding, restrictionOf, startup } from "./wiring.js"
 
-export type Wiring = FhirEngine | Versions | Rules | Grant | Journal
+export type Wiring =
+  | FhirEngine
+  | Versions
+  | Rules
+  | Grant
+  | Journal
+  | TerminologyPort
+  | Metrics
 
 const connect = (path: string): Effect.Effect<DuckDBConnection, Failure, never> =>
   Effect.acquireRelease(
@@ -25,13 +35,12 @@ const connect = (path: string): Effect.Effect<DuckDBConnection, Failure, never> 
     (connection) => Effect.sync(() => connection.closeSync())
   ) as unknown as Effect.Effect<DuckDBConnection, Failure, never>
 
-export const shared = (path: string): Layer.Layer<FhirEngine | Versions, Failure> =>
+export const served = (config: Config): Layer.Layer<FhirEngine | Versions, Failure> =>
   Layer.scopedContext(
     Effect.gen(function* () {
-      const connection = yield* connect(path)
-      const engine = yield* engineOn(connection)
-      const versioned = yield* versionedOn(connection)
-      return Context.make(FhirEngine, engine).pipe(Context.add(Versions, versioned))
+      const held = yield* startup(yield* connect(config.store.path))
+      const engine = binding(held, restrictionOf(config))
+      return Context.make(FhirEngine, engine).pipe(Context.add(Versions, held.versions))
     })
   )
 
@@ -47,8 +56,10 @@ export const journalToErrors: Layer.Layer<Journal> = Layer.succeed(Journal, {
 
 export const wiring = (config: Config): Layer.Layer<Wiring, Failure> =>
   Layer.mergeAll(
-    shared(config.store.path),
+    served(config),
     Layer.succeed(Rules, defaults),
     grantOf(config, randomUUID()),
-    journalToErrors
+    journalToErrors,
+    supplied(config.terminologyDir),
+    observed(config.logLevel)
   )
