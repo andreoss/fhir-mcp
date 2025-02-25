@@ -5,6 +5,8 @@ import { Rejected, Unavailable, toOutcome } from "../core/outcome.js"
 import type { Failure, OperationOutcome } from "../core/outcome.js"
 import { issue, redeem } from "./cursor.js"
 import { keep } from "./elements.js"
+import { CurrentSession, Limiter, limited } from "./limit.js"
+import type { Admission } from "./limit.js"
 import { OperationName, Parameters, flatten, named, refusal } from "./params.js"
 import type { Pair, Scope } from "./params.js"
 
@@ -368,6 +370,16 @@ export const call = (name: string, args: unknown): Effect.Effect<ToolResult, nev
       return failed(new Rejected({ reason: `unknown tool: ${name}` }))
     }
     const millis = yield* bound
+    let admission: Admission = { kind: "permit", release: Effect.void }
+    const maybeLimiter = yield* Effect.serviceOption(Limiter)
+    if (Option.isSome(maybeLimiter)) {
+      const maybeSession = yield* Effect.serviceOption(CurrentSession)
+      const sessionId = Option.isSome(maybeSession) ? maybeSession.value.id : "anonymous"
+      admission = yield* maybeLimiter.value.check(name, sessionId)
+    }
+    if (admission.kind === "refused") {
+      return limited(name, admission.retryAfterSeconds)
+    }
     const chosen =
       name === "read" ? readTool(args) : name === "search" ? searchTool(args) : capabilitiesTool(args)
     return yield* chosen.pipe(
@@ -376,6 +388,7 @@ export const call = (name: string, args: unknown): Effect.Effect<ToolResult, nev
         duration: Duration.millis(millis),
         onTimeout: () => expired(millis),
         onSuccess: (result: ToolResult) => result
-      })
+      }),
+      Effect.ensuring(admission.release)
     )
   })
