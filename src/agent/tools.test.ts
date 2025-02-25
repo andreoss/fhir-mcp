@@ -3,7 +3,15 @@ import { Effect, Layer } from "effect"
 import { FhirEngine } from "../core/engine.js"
 import type { Bundle, Engine, FhirResource, SearchQuery } from "../core/engine.js"
 import { Forbidden, NotFound, Unavailable } from "../core/outcome.js"
-import { DEFAULT_MAX_ENTRIES, call, tools } from "./tools.js"
+import {
+  DEFAULT_DEADLINE_MS,
+  DEFAULT_MAX_ENTRIES,
+  Deadline,
+  FhirOperations,
+  call,
+  tools
+} from "./tools.js"
+import type { OperationCall } from "./tools.js"
 
 const patient: FhirResource = { resourceType: "Patient", id: "p1", birthDate: "1956-05-12" }
 
@@ -28,6 +36,9 @@ const engine = (over: Partial<Engine> = {}): Layer.Layer<FhirEngine> =>
 
 const invoke = (name: string, args: unknown, layer = engine()) =>
   Effect.runSync(call(name, args).pipe(Effect.provide(layer)))
+
+const fired = (name: string, args: unknown, layer: Layer.Layer<FhirEngine>) =>
+  Effect.runPromise(call(name, args).pipe(Effect.provide(layer)))
 
 const body = (result: { content: ReadonlyArray<{ text: string }> }) => JSON.parse(result.content[0]!.text)
 
@@ -250,5 +261,282 @@ describe("paging and element selection", () => {
     const result = invoke("read", { type: "Patient", id: "p1", elements: ["name; drop"] })
     expect(result.isError).toBe(true)
     expect(body(result).issue[0].diagnostics).toContain("elements")
+  })
+})
+
+describe("repeated search parameters", () => {
+  const watcher = (): { seen: ReadonlyArray<readonly [string, string]> } => ({ seen: [] })
+
+  const watching = (held: { seen: ReadonlyArray<readonly [string, string]> }) =>
+    engine({
+      search: (query) => {
+        held.seen = query.parameters
+        return Effect.succeed(bundleOf(1))
+      }
+    })
+
+  it("reaches the engine as two pairs for a bounded date range", () => {
+    const held = watcher()
+    const result = invoke(
+      "search",
+      { type: "Patient", parameters: { date: ["ge2024-01-01", "le2024-12-31"] } },
+      watching(held)
+    )
+    expect(result.isError).toBe(false)
+    expect(held.seen).toEqual([["date", "ge2024-01-01"], ["date", "le2024-12-31"]])
+  })
+
+  it("mixes a single value and a repeated one, keeping the order given", () => {
+    const held = watcher()
+    invoke(
+      "search",
+      { type: "Patient", parameters: { family: "Simpson", date: ["ge1", "le2"] } },
+      watching(held)
+    )
+    expect(held.seen).toEqual([["family", "Simpson"], ["date", "ge1"], ["date", "le2"]])
+  })
+
+  it("refuses a value that is neither a string nor a list of them", () => {
+    const result = invoke("search", { type: "Patient", parameters: { family: 5 } }, engine())
+    expect(result.isError).toBe(true)
+    expect(body(result).issue[0].code).toBe("invalid")
+  })
+
+  it("continues a repeated-parameter query from the token it issued", () => {
+    const held = watcher()
+    const layer = engine({
+      search: (query) => {
+        held.seen = query.parameters
+        return Effect.succeed(bundleOf(50))
+      }
+    })
+    const args = { type: "Patient", max: 10, parameters: { date: ["ge1", "le2"] } }
+    const token = body(invoke("search", args, layer)).link[0].url as string
+    const next = invoke("search", { ...args, cursor: token }, layer)
+    expect(next.isError).toBe(false)
+    expect(held.seen).toHaveLength(2)
+  })
+})
+
+describe("named operations", () => {
+  const answer: Bundle = {
+    resourceType: "Bundle",
+    type: "searchset",
+    total: 1,
+    entry: [{ resource: { resourceType: "Observation", id: "o1", status: "final" } }]
+  }
+
+  const ops = (
+    held: { call?: OperationCall },
+    given: Bundle = answer
+  ): Layer.Layer<FhirOperations> =>
+    Layer.succeed(FhirOperations, {
+      invoke: (one) => {
+        held.call = one
+        return Effect.succeed(given)
+      }
+    })
+
+  const served = (held: { call?: OperationCall }, given?: Bundle) =>
+    Layer.merge(engine(), given === undefined ? ops(held) : ops(held, given))
+
+  it("dispatches an instance operation against a type and an id", () => {
+    const held: { call?: OperationCall } = {}
+    const result = invoke(
+      "read",
+      { type: "Patient", id: "p1", operation: "$everything" },
+      served(held)
+    )
+    expect(result.isError).toBe(false)
+    expect(held.call).toEqual({
+      name: "$everything",
+      type: "Patient",
+      id: "p1",
+      parameters: []
+    })
+    expect(body(result).resourceType).toBe("Bundle")
+  })
+
+  it("hands the operation its parameters as repeated pairs", () => {
+    const held: { call?: OperationCall } = {}
+    invoke(
+      "read",
+      {
+        type: "Patient",
+        id: "p1",
+        operation: "$everything",
+        parameters: { _type: ["Observation", "Condition"] }
+      },
+      served(held)
+    )
+    expect(held.call?.parameters).toEqual([
+      ["_type", "Observation"],
+      ["_type", "Condition"]
+    ])
+  })
+
+  it("dispatches a type operation from the search tool", () => {
+    const held: { call?: OperationCall } = {}
+    const result = invoke(
+      "search",
+      { type: "DocumentReference", operation: "$docref", parameters: { patient: "p1" } },
+      served(held)
+    )
+    expect(result.isError).toBe(false)
+    expect(held.call?.name).toBe("$docref")
+    expect(held.call?.id).toBeUndefined()
+    expect(held.call?.parameters).toEqual([["patient", "p1"]])
+  })
+
+  it("refuses an unknown operation by name, never passing it through", () => {
+    const held: { call?: OperationCall } = {}
+    const result = invoke(
+      "read",
+      { type: "Patient", id: "p1", operation: "$expunge" },
+      served(held)
+    )
+    expect(result.isError).toBe(true)
+    expect(body(result).issue[0].diagnostics).toContain("$expunge")
+    expect(held.call).toBeUndefined()
+  })
+
+  it("refuses an operation on a type it is not defined on", () => {
+    const held: { call?: OperationCall } = {}
+    const result = invoke(
+      "read",
+      { type: "Observation", id: "o1", operation: "$everything" },
+      served(held)
+    )
+    expect(result.isError).toBe(true)
+    expect(body(result).issue[0].diagnostics).toContain("Observation")
+    expect(held.call).toBeUndefined()
+  })
+
+  it("refuses an instance operation reached without an id", () => {
+    const held: { call?: OperationCall } = {}
+    const result = invoke(
+      "search",
+      { type: "Patient", operation: "$everything" },
+      served(held)
+    )
+    expect(result.isError).toBe(true)
+    expect(body(result).issue[0].diagnostics).toContain("id")
+  })
+
+  it("refuses a name that is not an operation name", () => {
+    const result = invoke("read", { type: "Patient", id: "p1", operation: "everything" }, engine())
+    expect(result.isError).toBe(true)
+    expect(body(result).issue[0].diagnostics).toContain("operation")
+  })
+
+  it("answers transient when nothing serves operations", () => {
+    const result = invoke("read", { type: "Patient", id: "p1", operation: "$everything" }, engine())
+    expect(result.isError).toBe(true)
+    expect(body(result).issue[0].code).toBe("transient")
+  })
+
+  it("reduces an operation bundle over the budget and says what it left out", () => {
+    const held: { call?: OperationCall } = {}
+    const result = invoke(
+      "search",
+      { type: "DocumentReference", operation: "$docref", parameters: { patient: "p1" }, max: 10 },
+      served(held, bundleOf(50))
+    )
+    expect(body(result).entry).toHaveLength(10)
+    expect(result.elided).toEqual({ returned: 10, of: 50 })
+  })
+
+  it("counts an operation answer that carries no total", () => {
+    const held: { call?: OperationCall } = {}
+    const result = invoke(
+      "search",
+      { type: "DocumentReference", operation: "$docref", parameters: { patient: "p1" }, max: 2 },
+      served(held, { resourceType: "Bundle", type: "searchset", entry: bundleOf(4).entry ?? [] })
+    )
+    expect(result.elided).toEqual({ returned: 2, of: 4 })
+  })
+
+  it("keeps only the elements asked for in an operation answer", () => {
+    const held: { call?: OperationCall } = {}
+    const result = invoke(
+      "read",
+      { type: "Patient", id: "p1", operation: "$everything", elements: ["status"] },
+      served(held)
+    )
+    expect(body(result).entry[0].resource).toEqual({
+      resourceType: "Observation",
+      id: "o1",
+      status: "final"
+    })
+  })
+
+  it("refuses parameters on a read that names no operation", () => {
+    const result = invoke("read", { type: "Patient", id: "p1", parameters: { a: "b" } }, engine())
+    expect(result.isError).toBe(true)
+    expect(body(result).issue[0].diagnostics).toContain("parameters")
+  })
+
+  it("refuses a budget on a read that names no operation", () => {
+    const result = invoke("read", { type: "Patient", id: "p1", max: 5 }, engine())
+    expect(result.isError).toBe(true)
+    expect(body(result).issue[0].diagnostics).toContain("max")
+  })
+
+  it("refuses a continuation token given alongside an operation", () => {
+    const held: { call?: OperationCall } = {}
+    const result = invoke(
+      "search",
+      { type: "DocumentReference", operation: "$docref", cursor: "x" },
+      served(held)
+    )
+    expect(result.isError).toBe(true)
+    expect(body(result).issue[0].diagnostics).toContain("cursor")
+    expect(held.call).toBeUndefined()
+  })
+
+  it("names the operations it serves in the capability answer", () => {
+    const result = invoke("capabilities", { type: "Patient" }, engine())
+    expect(body(result).operations).toEqual(["$everything", "$docref"])
+  })
+
+  it("declares the operation argument on the read and search tools", () => {
+    for (const name of ["read", "search"]) {
+      const tool = tools.find((one) => one.name === name)
+      expect(tool?.inputSchema.properties["operation"]).toBeDefined()
+    }
+  })
+})
+
+describe("tool call deadline", () => {
+  it("carries a safe default", () => {
+    expect(DEFAULT_DEADLINE_MS).toBeGreaterThanOrEqual(1000)
+  })
+
+  it("refuses a hung engine and says when to retry", async () => {
+    const layer = Layer.merge(
+      engine({ read: () => Effect.never }),
+      Layer.succeed(Deadline, { millis: 20 })
+    )
+    const result = await fired("read", { type: "Patient", id: "p1" }, layer)
+    expect(result.isError).toBe(true)
+    expect(body(result).resourceType).toBe("OperationOutcome")
+    expect(body(result).issue[0].code).toBe("transient")
+    expect(body(result).issue[0].diagnostics).toContain("retry")
+  })
+
+  it("leaves a call that answers inside the deadline alone", () => {
+    const layer = Layer.merge(engine(), Layer.succeed(Deadline, { millis: 5000 }))
+    const result = invoke("read", { type: "Patient", id: "p1" }, layer)
+    expect(result.isError).toBe(false)
+    expect(body(result).id).toBe("p1")
+  })
+
+  it("bounds a hung search under the default deadline shape", async () => {
+    const layer = Layer.merge(
+      engine({ search: () => Effect.never }),
+      Layer.succeed(Deadline, { millis: 20 })
+    )
+    const result = await fired("search", { type: "Patient" }, layer)
+    expect(body(result).issue[0].diagnostics).toContain("20")
   })
 })
