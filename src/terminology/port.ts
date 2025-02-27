@@ -60,6 +60,8 @@ export interface Contains {
   readonly inactive: boolean | undefined
   readonly designation: ReadonlyArray<Designation> | undefined
   readonly contains: ReadonlyArray<Contains> | undefined
+  readonly rank?: number
+  readonly score?: number
 }
 
 export interface Parameter {

@@ -116,6 +116,35 @@ describe("expansion filter", () => {
   })
 })
 
+describe("expansion ranking", () => {
+  it("orders filter matches by the declared relevance ranking", async () => {
+    const expansion = await run({ url: ALL, filter: "a", excludeNested: true })
+    expect(codes(expansion.expansion.contains)).toEqual(["animal", "cat", "mammal", "dog"])
+  })
+
+  it("names the ranking and carries a rank and a score on each match", async () => {
+    const expansion = await run({ url: ALL, filter: "cat", excludeNested: true })
+    expect(expansion.expansion.parameter).toContainEqual({ name: "ranking", value: "relevance" })
+    const first = expansion.expansion.contains[0]
+    expect(first?.rank).toBe(1)
+    expect(typeof first?.score).toBe("number")
+  })
+
+  it("takes the ranking into account before slicing a page", async () => {
+    const expansion = await run({ url: ALL, filter: "a", count: 2, offset: 0 })
+    expect(codes(expansion.expansion.contains)).toEqual(["animal", "cat"])
+  })
+
+  it("says an unfiltered answer is unranked and carries no scores", async () => {
+    const expansion = await run({ url: ALL, excludeNested: true })
+    expect(expansion.expansion.parameter).toContainEqual({ name: "ranking", value: "none" })
+    for (const one of expansion.expansion.contains) {
+      expect(one.rank).toBeUndefined()
+      expect(one.score).toBeUndefined()
+    }
+  })
+})
+
 describe("expansion of active concepts only", () => {
   it("excludes an inactive concept when only active ones are asked for", async () => {
     const expansion = await run({ url: ALL, activeOnly: true, excludeNested: true })

@@ -3,6 +3,7 @@ import { NotFound, Rejected } from "../core/outcome.js"
 import type { Failure } from "../core/outcome.js"
 import { ancestorOf, asOf, byCode, resolve } from "./system.js"
 import type { CodeSystem, Concept, Include, Sources } from "./system.js"
+import { order } from "./rank.js"
 import type { Contains, ExpandRequest, Expansion, Parameter } from "./port.js"
 
 interface Picked {
@@ -130,7 +131,8 @@ const gather = (
 const entry = (
   picked: Picked,
   request: ExpandRequest,
-  children: ReadonlyArray<Contains> | undefined
+  children: ReadonlyArray<Contains> | undefined,
+  scored: { readonly rank: number; readonly score: number } | undefined
 ): Contains => ({
   system: picked.system.url,
   version: picked.system.version,
@@ -138,7 +140,8 @@ const entry = (
   display: displayOf(picked.concept, request.displayLanguage),
   inactive: picked.concept.inactive === true ? true : undefined,
   designation: request.designations === true ? picked.concept.designation ?? [] : undefined,
-  contains: children
+  contains: children,
+  ...(scored === undefined ? {} : { rank: scored.rank, score: scored.score })
 })
 
 const nest = (picked: ReadonlyArray<Picked>): ReadonlyArray<Node> => {
@@ -156,16 +159,27 @@ const nest = (picked: ReadonlyArray<Picked>): ReadonlyArray<Node> => {
   return roots
 }
 
-const rendered = (nodes: ReadonlyArray<Node>, request: ExpandRequest): ReadonlyArray<Contains> =>
+const rendered = (
+  nodes: ReadonlyArray<Node>,
+  request: ExpandRequest,
+  scoredOf: (picked: Picked) => { readonly rank: number; readonly score: number } | undefined
+): ReadonlyArray<Contains> =>
   nodes.map((node) =>
     entry(
       node.picked,
       request,
-      node.children.length === 0 ? undefined : rendered(node.children, request)
+      node.children.length === 0
+        ? undefined
+        : rendered(node.children, request, scoredOf),
+      scoredOf(node.picked)
     )
   )
 
-const parameters = (request: ExpandRequest, flat: boolean): ReadonlyArray<Parameter> => {
+const parameters = (
+  request: ExpandRequest,
+  flat: boolean,
+  ranking: string
+): ReadonlyArray<Parameter> => {
   const out: Array<Parameter> = []
   if (request.filter !== undefined) out.push({ name: "filter", value: request.filter })
   if (request.count !== undefined) out.push({ name: "count", value: request.count })
@@ -179,6 +193,7 @@ const parameters = (request: ExpandRequest, flat: boolean): ReadonlyArray<Parame
     out.push({ name: "includeDesignations", value: request.designations })
   }
   out.push({ name: "excludeNested", value: flat })
+  out.push({ name: "ranking", value: ranking })
   for (const pin of request.versions ?? []) out.push({ name: "system-version", value: pin })
   return out
 }
@@ -218,12 +233,28 @@ export const expand = (
         (request.activeOnly !== true || item.concept.inactive !== true)
     )
     const kept = matching(active, request)
+    const projected: ReadonlyArray<Concept & { readonly item: Picked }> = kept.map((item) => ({
+      code: item.concept.code,
+      ...(item.concept.display === undefined ? {} : { display: item.concept.display }),
+      item
+    }))
+    const ordered = order(request.filter, projected)
+    const scored = new Map<string, { readonly rank: number; readonly score: number }>()
+    if (ordered._tag === "ranked") {
+      for (const one of ordered.entries) {
+        scored.set(key(one.item), { rank: one.rank, score: one.score })
+      }
+    }
+    const scoredOf = (item: Picked): { readonly rank: number; readonly score: number } | undefined =>
+      scored.get(key(item))
+    const entries: ReadonlyArray<Picked> = ordered.entries.map((one) => one.item)
     const paging = request.count !== undefined || request.offset !== undefined
     const offset = request.offset ?? 0
     const page = paging
-      ? kept.slice(offset, request.count === undefined ? undefined : offset + request.count)
-      : kept
+      ? entries.slice(offset, request.count === undefined ? undefined : offset + request.count)
+      : entries
     const flat = paging || request.excludeNested === true
+    const ranking = ordered._tag === "ranked" ? ordered.criterion : "none"
     return {
       resourceType: "ValueSet",
       url: valueSet.url,
@@ -232,10 +263,10 @@ export const expand = (
         timestamp,
         total: kept.length,
         offset: paging ? offset : undefined,
-        parameter: parameters(request, flat),
+        parameter: parameters(request, flat, ranking),
         contains: flat
-          ? page.map((item) => entry(item, request, undefined))
-          : rendered(nest(page), request)
+          ? page.map((item) => entry(item, request, undefined, scoredOf(item)))
+          : rendered(nest(page), request, scoredOf)
       }
     }
   })
