@@ -1,8 +1,10 @@
 {
   "modules": [
     "src/agent/audit.ts",
+    "src/agent/chunk.ts",
     "src/agent/cursor.ts",
     "src/agent/elements.ts",
+    "src/agent/limit.ts",
     "src/agent/params.ts",
     "src/agent/tools.ts",
     "src/agent/write.ts",
@@ -48,6 +50,11 @@
     "src/core/engine.ts",
     "src/core/interactions.ts",
     "src/core/outcome.ts",
+    "src/emr/adapter.ts",
+    "src/emr/backend.ts",
+    "src/emr/lifecycle.ts",
+    "src/emr/token.ts",
+    "src/emr/wire.ts",
     "src/engine/cache.ts",
     "src/engine/restriction.ts",
     "src/engine/search.ts",
@@ -78,6 +85,7 @@
     "src/obs/scrape.ts",
     "src/obs/sink.ts",
     "src/obs/telemetry.ts",
+    "src/operations/attachment.ts",
     "src/operations/compartment.ts",
     "src/operations/docref.ts",
     "src/operations/duck.ts",
@@ -101,10 +109,14 @@
     "src/persist/feed.ts",
     "src/persist/pool.ts",
     "src/persist/retry.ts",
+    "src/protocol/cursor.ts",
     "src/protocol/http.ts",
     "src/protocol/negotiate.ts",
+    "src/protocol/prompts.ts",
+    "src/protocol/resources.ts",
     "src/protocol/revision.ts",
     "src/protocol/server.ts",
+    "src/protocol/session.ts",
     "src/replace/cutover.ts",
     "src/replace/diff.ts",
     "src/replace/fake.ts",
@@ -131,6 +143,8 @@
     "src/terminology/expand.ts",
     "src/terminology/load.ts",
     "src/terminology/port.ts",
+    "src/terminology/rank.ts",
+    "src/terminology/remote.ts",
     "src/terminology/system.ts",
     "src/terminology/terminology.ts",
     "src/tools/args.ts",
@@ -156,11 +170,13 @@
     "src/versions/source.ts",
     "src/versions/version.ts"
   ],
-  "tests": 140,
+  "tests": 154,
   "tested": [
     "src/agent/audit.ts",
+    "src/agent/chunk.ts",
     "src/agent/cursor.ts",
     "src/agent/elements.ts",
+    "src/agent/limit.ts",
     "src/agent/params.ts",
     "src/agent/tools.ts",
     "src/agent/write.ts",
@@ -201,6 +217,11 @@
     "src/conformance/versions.ts",
     "src/core/interactions.ts",
     "src/core/outcome.ts",
+    "src/emr/adapter.ts",
+    "src/emr/backend.ts",
+    "src/emr/lifecycle.ts",
+    "src/emr/token.ts",
+    "src/emr/wire.ts",
     "src/engine/cache.ts",
     "src/engine/restriction.ts",
     "src/engine/search.ts",
@@ -226,6 +247,7 @@
     "src/obs/scrape.ts",
     "src/obs/sink.ts",
     "src/obs/telemetry.ts",
+    "src/operations/attachment.ts",
     "src/operations/docref.ts",
     "src/operations/everything.ts",
     "src/operations/includes.ts",
@@ -242,10 +264,14 @@
     "src/persist/feed.ts",
     "src/persist/pool.ts",
     "src/persist/retry.ts",
+    "src/protocol/cursor.ts",
     "src/protocol/http.ts",
     "src/protocol/negotiate.ts",
+    "src/protocol/prompts.ts",
+    "src/protocol/resources.ts",
     "src/protocol/revision.ts",
     "src/protocol/server.ts",
+    "src/protocol/session.ts",
     "src/replace/cutover.ts",
     "src/replace/diff.ts",
     "src/replace/gate.ts",
@@ -270,6 +296,8 @@
     "src/suite/record.ts",
     "src/terminology/expand.ts",
     "src/terminology/load.ts",
+    "src/terminology/rank.ts",
+    "src/terminology/remote.ts",
     "src/terminology/system.ts",
     "src/terminology/terminology.ts",
     "src/tools/args.ts",
@@ -436,6 +464,41 @@
       "name": "ConfigError"
     },
     {
+      "path": "src/emr/adapter.ts",
+      "reason": "unnamed",
+      "name": "bearerCredit"
+    },
+    {
+      "path": "src/emr/adapter.ts",
+      "reason": "unnamed",
+      "name": "basicCredit"
+    },
+    {
+      "path": "src/emr/adapter.ts",
+      "reason": "unnamed",
+      "name": "smartCredit"
+    },
+    {
+      "path": "src/emr/backend.ts",
+      "reason": "unnamed",
+      "name": "requiredPositive"
+    },
+    {
+      "path": "src/emr/token.ts",
+      "reason": "unnamed",
+      "name": "Replayed"
+    },
+    {
+      "path": "src/emr/token.ts",
+      "reason": "unnamed",
+      "name": "systemTokenClock"
+    },
+    {
+      "path": "src/emr/token.ts",
+      "reason": "unnamed",
+      "name": "tokenClockAt"
+    },
+    {
       "path": "src/engine/cache.ts",
       "reason": "unnamed",
       "name": "CAPACITY"
@@ -532,11 +595,6 @@
     {
       "path": "src/obs/telemetry.ts",
       "reason": "unnamed",
-      "name": "DEFAULT_LIMIT"
-    },
-    {
-      "path": "src/obs/telemetry.ts",
-      "reason": "unnamed",
       "name": "opDims"
     },
     {
@@ -604,6 +662,11 @@
       "name": "TransportError"
     },
     {
+      "path": "src/protocol/prompts.ts",
+      "reason": "unnamed",
+      "name": "workflows"
+    },
+    {
       "path": "src/replace/diff.ts",
       "reason": "unnamed",
       "name": "SEVERITY"
@@ -634,6 +697,11 @@
       "name": "filesLayer"
     },
     {
+      "path": "src/terminology/remote.ts",
+      "reason": "unnamed",
+      "name": "nodeFetcher"
+    },
+    {
       "path": "src/tools/cli.ts",
       "reason": "unreached"
     },
@@ -651,11 +719,6 @@
       "path": "src/trail/store.ts",
       "reason": "unnamed",
       "name": "STATEMENTS"
-    },
-    {
-      "path": "src/versions/source.ts",
-      "reason": "unnamed",
-      "name": "SOURCE"
     }
   ]
 }
