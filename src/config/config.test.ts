@@ -97,6 +97,93 @@ describe("config", () => {
   })
 })
 
+describe("emr backend config", () => {
+  const smart: Record<string, string> = {
+    FHIR_EMR_BACKEND: "clinic-a",
+    FHIR_EMR_BASE_URL: "https://emr.example/fhir",
+    FHIR_EMR_PROVIDER: "smart",
+    FHIR_EMR_TIMEOUT_MS: "30000",
+    FHIR_EMR_RETRY_AFTER_MS: "500",
+    FHIR_EMR_AUTH_SCHEME: "smart",
+    FHIR_EMR_AUTH_TOKEN_URL: "https://auth.example/token",
+    FHIR_EMR_AUTH_CLIENT_ID: "client-1",
+    FHIR_EMR_AUTH_KID: "key-1",
+    FHIR_EMR_AUTH_KEY: "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0t",
+    FHIR_EMR_AUTH_ASSERTION_LIFETIME_MS: "300000",
+    FHIR_EMR_AUTH_REFRESH_MARGIN_MS: "10000"
+  }
+
+  it("describes a backend from its own fields", () => {
+    const config = value(run(smart))
+    expect(config.emr).toEqual({
+      name: "clinic-a",
+      baseUrl: "https://emr.example/fhir",
+      provider: "smart",
+      timeoutMs: 30000,
+      retryAfterMs: 500,
+      auth: {
+        scheme: "smart",
+        tokenUrl: "https://auth.example/token",
+        clientId: "client-1",
+        kid: "key-1",
+        key: "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0t",
+        assertionLifetimeMs: 300000,
+        refreshMarginMs: 10000
+      }
+    })
+  })
+
+  it("describes a bearer backend with its token", () => {
+    const config = value(run({
+      FHIR_EMR_BACKEND: "clinic-b",
+      FHIR_EMR_BASE_URL: "https://emr.example/fhir",
+      FHIR_EMR_TIMEOUT_MS: "30000",
+      FHIR_EMR_RETRY_AFTER_MS: "500",
+      FHIR_EMR_AUTH_SCHEME: "bearer",
+      FHIR_EMR_AUTH_TOKEN: "static-token"
+    }))
+    expect(config.emr?.auth).toEqual({ scheme: "bearer", token: "static-token" })
+  })
+
+  it("keeps the store backend as the default when no backend is described", () => {
+    expect(value(run({})).emr).toBeUndefined()
+  })
+
+  it("refuses a backend with a blank name", () => {
+    const error = failure(run({ ...smart, FHIR_EMR_BACKEND: "   " }))
+    expect(error.problems[0]).toContain("name must be set and not blank")
+  })
+
+  it("refuses a backend with a blank base url", () => {
+    const error = failure(run({ ...smart, FHIR_EMR_BASE_URL: "" }))
+    expect(error.problems[0]).toContain("baseUrl must be set and not blank")
+  })
+
+  it("refuses a smart backend with a blank signing key", () => {
+    const error = failure(run({ ...smart, FHIR_EMR_AUTH_KEY: " " }))
+    expect(error.problems[0]).toContain("auth.key must be set and not blank")
+  })
+
+  it("refuses a backend described only by a blank field", () => {
+    const error = failure(run({ FHIR_EMR_BACKEND: "   " }))
+    expect(error.problems[0]).toContain("name must be set and not blank")
+  })
+
+  it("names a missing required field before anything connects", () => {
+    const error = failure(run({ FHIR_EMR_BACKEND: "ghost", FHIR_EMR_AUTH_SCHEME: "basic" }))
+    const message = error.problems.join(" ")
+    expect(message).toContain("ghost")
+    expect(message).toContain("baseUrl must be set and not blank")
+  })
+
+  it("keeps the per-issuer refresh margin from the backend, not one global value", () => {
+    const low = value(run({ ...smart, FHIR_EMR_AUTH_REFRESH_MARGIN_MS: "10000" }))
+    const high = value(run({ ...smart, FHIR_EMR_AUTH_REFRESH_MARGIN_MS: "300000" }))
+    expect(low.emr?.auth).toMatchObject({ refreshMarginMs: 10000 })
+    expect(high.emr?.auth).toMatchObject({ refreshMarginMs: 300000 })
+  })
+})
+
 describe("write toggle", () => {
   it("does not permit writing unless it is asked for", () => {
     expect(value(run({})).allowWrite).toBe(false)
