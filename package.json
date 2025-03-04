@@ -1,0 +1,25 @@
+{
+  "name": "fhir-mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@duckdb/node-api": "1.5.5-r.4",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "effect": "3.22.1"
+  },
+  "devDependencies": {
+    "@types/node": "26.4.1",
+    "@vitest/coverage-v8": "5.0.0",
+    "typescript": "5.9.3",
+    "vitest": "5.0.0"
+  }
+}

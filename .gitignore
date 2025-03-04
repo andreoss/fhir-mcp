@@ -1,0 +1,11 @@
+doc/
+references/
+node_modules/
+dist/
+coverage/
+scratch/
+*.log
+.env
+.env.*
+*.duckdb
+*.duckdb.wal
