@@ -20,8 +20,19 @@ import type { Rules, Versions } from "../core/interactions.js"
 import { edge } from "../obs/correlation.js"
 import { Metrics } from "../obs/metrics.js"
 import { PINNED_REVISION, capabilities, negotiate } from "./revision.js"
+import { paginate } from "./cursor.js"
 
 const writeNames = new Set(writeTools.map((tool) => tool.name))
+
+const annotationsOf = (tool: ToolSpec) => {
+  const destructive = tool.annotations.destructiveHint
+  return {
+    readOnlyHint: !destructive,
+    destructiveHint: destructive,
+    idempotentHint: tool.annotations.idempotentHint,
+    openWorldHint: tool.annotations.openWorldHint
+  }
+}
 
 const NAME = "fhir-mcp"
 
@@ -92,14 +103,21 @@ export const build = (
     }
   })
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: offered.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      inputSchema: tool.inputSchema,
-      annotations: tool.annotations
-    }))
-  }))
+  server.setRequestHandler(ListToolsRequestSchema, async (request) => {
+    const part = paginate(offered, request.params?.cursor, "tools")
+    if (part === undefined) {
+      throw new McpError(ErrorCode.InvalidParams, "tools cursor not accepted")
+    }
+    return {
+      tools: part.page.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        annotations: annotationsOf(tool)
+      })),
+      ...(part.nextCursor === undefined ? {} : { nextCursor: part.nextCursor })
+    }
+  })
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const name = request.params.name
