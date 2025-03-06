@@ -1,5 +1,6 @@
 import { Effect, Either } from "effect"
 import type { DuckDBConnection } from "@duckdb/node-api"
+import { createPrivateKey } from "node:crypto"
 import type { Config } from "../config/config.js"
 import { grant } from "../auth/scope.js"
 import { manager } from "../compartment/definition.js"
@@ -17,6 +18,15 @@ import type { Store } from "../store/store.js"
 import { versionedOn } from "../store/versioned.js"
 import { typed } from "./typed.js"
 import type { Failure } from "../core/outcome.js"
+import { mint } from "../auth/mint.js"
+import { basicCredit, bearerCredit, remote, smartCredit } from "../emr/adapter.js"
+import type { Credit, Send } from "../emr/adapter.js"
+import type { AuthSmart, BackendConfig } from "../emr/backend.js"
+import { lifecycle } from "../emr/lifecycle.js"
+import { cache as tokenCache } from "../emr/token.js"
+import type { AssertionSigner, IssuerConfig, Post, Time } from "../emr/token.js"
+import { node } from "../emr/wire.js"
+import type { Bound } from "../emr/wire.js"
 
 export interface Startup {
   readonly deps: Deps
@@ -77,4 +87,84 @@ export const binding = (held: Startup, restriction: Restriction): Engine => {
     searchParameters: engine.searchParameters
   }
 }
+
+export const boundOf = (backend: BackendConfig): Bound => ({
+  dependency: backend.name,
+  timeoutMs: backend.timeoutMs,
+  retryAfterMs: backend.retryAfterMs
+})
+
+export const timeNow: Time = { ms: () => Date.now() }
+
+export const postOf = (backend: BackendConfig): Post => ({
+  post: (url, body) =>
+    node().send({
+      method: "POST",
+      url,
+      headers: {
+        accept: "application/json",
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      body,
+      bound: boundOf(backend)
+    })
+})
+
+export const issuerOf = (auth: AuthSmart): IssuerConfig => ({
+  tokenUrl: auth.tokenUrl,
+  clientId: auth.clientId,
+  kid: auth.kid,
+  assertionLifetimeMs: auth.assertionLifetimeMs,
+  refreshMarginMs: auth.refreshMarginMs,
+  ...(auth.scope === undefined ? {} : { scope: auth.scope })
+})
+
+export const signerOf = (auth: AuthSmart): AssertionSigner => {
+  const key = createPrivateKey(auth.key)
+  return {
+    kid: auth.kid,
+    sign: (claims) => mint(claims, { alg: "RS384", key, kid: auth.kid })
+  }
+}
+
+export const creditOf = (backend: BackendConfig): Credit => {
+  switch (backend.auth.scheme) {
+    case "none":
+      return () => Effect.succeed({})
+    case "bearer":
+      return bearerCredit(backend.auth.token)
+    case "basic":
+      return basicCredit(backend.auth.username, backend.auth.password)
+    case "smart": {
+      const issuer = issuerOf(backend.auth)
+      const signer = signerOf(backend.auth)
+      const heldToken = tokenCache(issuer, signer)
+      return smartCredit({
+        lf: lifecycle(issuer, signer, heldToken),
+        clock: timeNow,
+        post: postOf(backend),
+        dependency: backend.name
+      })
+    }
+  }
+}
+
+export const overTransport = (
+  backend: BackendConfig,
+  credit: Credit,
+  send: Send
+): Engine =>
+  remote({ baseUrl: backend.baseUrl, bound: boundOf(backend), credit, send })
+
+export const remoteEngine = (backend: BackendConfig): Engine =>
+  overTransport(backend, creditOf(backend), node().send)
+
+export const engineOf = (
+  held: Startup,
+  restriction: Restriction,
+  config: Config,
+  remote: (backend: BackendConfig) => Engine = remoteEngine,
+  local: (held: Startup, restriction: Restriction) => Engine = binding
+): Engine =>
+  config.emr === undefined ? local(held, restriction) : remote(config.emr)
 
