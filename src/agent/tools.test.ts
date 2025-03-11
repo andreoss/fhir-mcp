@@ -3,7 +3,7 @@ import { Effect, Layer } from "effect"
 import { FhirEngine } from "../core/engine.js"
 import type { Bundle, Engine, FhirResource, SearchQuery } from "../core/engine.js"
 import { Forbidden, NotFound, Unavailable } from "../core/outcome.js"
-import { call, tools } from "./tools.js"
+import { DEFAULT_MAX_ENTRIES, call, tools } from "./tools.js"
 
 const patient: FhirResource = { resourceType: "Patient", id: "p1", birthDate: "1956-05-12" }
 
@@ -132,5 +132,58 @@ describe("tool surface", () => {
     expect(result.isError).toBe(false)
     expect(body(result)).toEqual(hostile)
     expect(result.content[0]!.type).toBe("text")
+  })
+})
+
+describe("tool surface, remaining paths", () => {
+  it("reports the parameters a named type accepts", () => {
+    const result = invoke("capabilities", { type: "Patient" })
+    expect(body(result).type).toBe("Patient")
+    expect(body(result).parameters).toEqual(["family", "birthdate"])
+  })
+
+  it("refuses a malformed id", () => {
+    const result = invoke("read", { type: "Patient", id: "../../etc" })
+    expect(result.isError).toBe(true)
+    expect(body(result).issue[0].diagnostics).toContain("id")
+  })
+
+  it("refuses a budget outside the accepted range", () => {
+    expect(invoke("search", { type: "Patient", max: 0 }).isError).toBe(true)
+    expect(invoke("search", { type: "Patient", max: 5000 }).isError).toBe(true)
+  })
+
+  it("applies the default budget when none is asked for", () => {
+    const layer = engine({ search: () => Effect.succeed(bundleOf(100)) })
+    const result = invoke("search", { type: "Patient" }, layer)
+    expect(body(result).entry).toHaveLength(DEFAULT_MAX_ENTRIES)
+    expect(result.elided).toEqual({ returned: DEFAULT_MAX_ENTRIES, of: 100 })
+  })
+
+  it("counts what it returned when the engine reports no total", () => {
+    const layer = engine({
+      search: () => Effect.succeed({ resourceType: "Bundle", type: "searchset", entry: bundleOf(40).entry })
+    })
+    const result = invoke("search", { type: "Patient", max: 10 }, layer)
+    expect(result.elided).toEqual({ returned: 10, of: 40 })
+  })
+
+  it("handles a bundle carrying no entries at all", () => {
+    const layer = engine({ search: () => Effect.succeed({ resourceType: "Bundle", type: "searchset" }) })
+    const result = invoke("search", { type: "Patient" }, layer)
+    expect(result.isError).toBe(false)
+    expect(result.elided).toBeUndefined()
+  })
+
+  it("passes the parameters through to the engine unchanged", () => {
+    let seen: ReadonlyArray<readonly [string, string]> = []
+    const layer = engine({
+      search: (query) => {
+        seen = query.parameters
+        return Effect.succeed(bundleOf(0))
+      }
+    })
+    invoke("search", { type: "Patient", parameters: { family: "Simpson", _count: "5" } }, layer)
+    expect(seen).toEqual([["family", "Simpson"], ["_count", "5"]])
   })
 })
