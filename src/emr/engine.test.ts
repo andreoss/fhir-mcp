@@ -6,7 +6,7 @@ import type { Bundle } from "../core/engine.js"
 import type { Config } from "../config/config.js"
 import { UNRESTRICTED } from "../engine/restriction.js"
 import type { Restriction } from "../engine/restriction.js"
-import { creditOf, engineOf, overTransport, remoteEngine } from "../host/wiring.js"
+import { creditOf, engineOf, issuerOf, overTransport, remoteEngine } from "../host/wiring.js"
 import type { Startup } from "../host/wiring.js"
 import type { BackendConfig } from "./backend.js"
 import type { Answer, Bound, SendRequest } from "./wire.js"
@@ -154,5 +154,28 @@ describe("credit composition", () => {
     })
     const credit = creditOf(smart)
     expect(typeof credit).toBe("function")
+  })
+
+  it("hands the configured refresh margin to the issuer, not one global value", () => {
+    const keys = generateKeyPairSync("rsa", { modulusLength: 2048 })
+    const key = keys.privateKey.export({ type: "pkcs8", format: "pem" }).toString()
+    const smart = backend({
+      provider: "smart",
+      auth: {
+        scheme: "smart",
+        tokenUrl: "https://auth.example/token",
+        clientId: "client-1",
+        kid: "key-1",
+        key,
+        scope: "patient/Patient.read",
+        assertionLifetimeMs: 300000,
+        refreshMarginMs: 15000
+      }
+    })
+    const issuer = issuerOf(smart.auth)
+    expect(issuer.refreshMarginMs).toBe(15000)
+    expect(issuer.assertionLifetimeMs).toBe(300000)
+    expect(issuer.scope).toBe("patient/Patient.read")
+    expect(issuer.tokenUrl).toBe("https://auth.example/token")
   })
 })
