@@ -1,6 +1,7 @@
 import { Data, Effect, ParseResult, Schema } from "effect"
 import { MissingField, parse } from "../emr/backend.js"
 import type { BackendConfig, BackendInput } from "../emr/backend.js"
+import { SECRET_KEY_ENV, open } from "./secrets.js"
 
 export class ConfigError extends Data.TaggedError("ConfigError")<{
   readonly problems: ReadonlyArray<string>
@@ -142,14 +143,32 @@ const hasAuthScheme = (env: Record<string, string | undefined>): boolean => {
   return raw !== undefined && raw.trim().length > 0
 }
 
+const SECRET_FIELDS: ReadonlySet<string> = new Set([
+  EMR.AUTH_TOKEN,
+  EMR.AUTH_PASSWORD,
+  EMR.AUTH_KEY
+])
+
 const readEmr = (
   env: Record<string, string | undefined>,
   problems: Array<string>
 ): BackendConfig | undefined => {
   if (!anyEmr(env)) return undefined
+  const secretKey = env[SECRET_KEY_ENV]
+  let refused: string | undefined
   const value = (field: string): string | undefined => {
+    if (refused !== undefined) return undefined
     const raw = env[field]
-    return raw === undefined ? undefined : raw
+    if (raw === undefined) return undefined
+    const trimmed = raw.trim()
+    if (trimmed.length === 0) return raw
+    if (!SECRET_FIELDS.has(field)) return raw
+    try {
+      return open(trimmed, secretKey)
+    } catch (error) {
+      refused = `${field}: ${error instanceof Error ? error.message : String(error)}`
+      return undefined
+    }
   }
   const input: BackendInput = {
     name: value(EMR.BACKEND),
@@ -172,6 +191,10 @@ const readEmr = (
         refreshMarginMs: value(EMR.AUTH_REFRESH_MARGIN_MS)
       }
       : undefined
+  }
+  if (refused !== undefined) {
+    problems.push(refused)
+    return undefined
   }
   try {
     return parse(input)

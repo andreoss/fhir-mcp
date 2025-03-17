@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { Effect, Exit } from "effect"
 import { load } from "./config.js"
+import { seal } from "./secrets.js"
 
 const run = (env: Record<string, string | undefined>) =>
   Effect.runSyncExit(load(env))
@@ -181,6 +182,35 @@ describe("emr backend config", () => {
     const high = value(run({ ...smart, FHIR_EMR_AUTH_REFRESH_MARGIN_MS: "300000" }))
     expect(low.emr?.auth).toMatchObject({ refreshMarginMs: 10000 })
     expect(high.emr?.auth).toMatchObject({ refreshMarginMs: 300000 })
+  })
+
+  it("decrypts a sealed secret with the key from the environment", () => {
+    const key = "test-key-7f3c-1a9e"
+    const sealed = seal("client-key-material", key)
+    const config = value(run({ ...smart, FHIR_EMR_AUTH_KEY: sealed, FHIR_SECRET_KEY: key }))
+    expect(config.emr?.auth).toMatchObject({ key: "client-key-material" })
+  })
+
+  it("never stores a secret value in plain form", () => {
+    const key = "test-key-3b21-c0de"
+    const sealed = seal("client-key-material", key)
+    expect(sealed).not.toContain("client-key-material")
+  })
+
+  it("refuses a sealed secret when no key is set, naming the field", () => {
+    const error = failure(run({ ...smart, FHIR_EMR_AUTH_KEY: seal("client-key-material", "some-key") }))
+    expect(error.problems[0]).toContain("FHIR_EMR_AUTH_KEY")
+    expect(error.problems[0]).toContain("no decryption key")
+  })
+
+  it("refuses a sealed secret under the wrong key, naming the field", () => {
+    const error = failure(run({
+      ...smart,
+      FHIR_EMR_AUTH_KEY: seal("client-key-material", "real-key"),
+      FHIR_SECRET_KEY: "wrong-key"
+    }))
+    expect(error.problems[0]).toContain("FHIR_EMR_AUTH_KEY")
+    expect(error.problems[0]).toContain("decryption failed")
   })
 })
 
