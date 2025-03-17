@@ -118,23 +118,24 @@ describe("lifecycle", () => {
     expect(calmNet.seen.length).toBe(1)
   })
 
-  it("names the expiry instead of retrying a dead grant", async () => {
+  it("exchanges again once the held grant has expired", async () => {
     const signer = signerOf("key-1")
-    const net = netOf(() => granted("never"))
+    const net = netOf(() => granted("fresh"))
     const expired = {
       refreshMarginMs: CFG.refreshMarginMs,
       issued: () => [],
       assert: () => ({ assertion: "x", aud: CFG.tokenUrl, exp: NOW_MS + 300_000 }),
       store: () => {},
       current: () => undefined,
-      grant: () => ({ accessToken: "dead", tokenType: "Bearer", expiresAt: Math.floor(NOW_MS / 1000) - 1 })
+      grant: () => ({ accessToken: "dead", tokenType: "Bearer", expiresAt: Math.floor(NOW_MS / 1000) - 1 }),
+      invalidate: () => {}
     }
     const lf = lifecycle(CFG, signer, expired)
-    const exit = await Effect.runPromiseExit(
+    const token = await Effect.runPromise(
       lf.token().pipe(Effect.provideService(TokenClock as never, clockAt(NOW_MS)), Effect.provideService(TokenNet as never, net))
     )
-    expect(exit._tag === "Failure" && exit.cause._tag === "Fail" && exit.cause.error._tag).toBe("Expired")
-    expect(net.seen.length).toBe(0)
+    expect(token).toBe("fresh")
+    expect(net.seen.length).toBe(1)
   })
 
   it("never lets a refresh loop disguise a refusal", async () => {
@@ -147,6 +148,25 @@ describe("lifecycle", () => {
     )
     expect(exit._tag === "Failure" && exit.cause._tag === "Fail")
     expect(net.seen.length).toBe(1)
+  })
+
+  it("invalidates the grant so the next call exchanges afresh", async () => {
+    const signer = signerOf("key-1")
+    const held = cache(CFG, signer)
+    const issued = { now: "tok-1" }
+    const net = netOf(() => granted(issued.now))
+    const lf = lifecycle(CFG, signer, held)
+    await Effect.runPromise(
+      lf.obtain().pipe(Effect.provideService(TokenClock as never, clockAt(NOW_MS)), Effect.provideService(TokenNet as never, net))
+    )
+    expect(net.seen.length).toBe(1)
+    issued.now = "tok-2"
+    await Effect.runPromise(lf.invalidate())
+    const next = await Effect.runPromise(
+      lf.token().pipe(Effect.provideService(TokenClock as never, clockAt(NOW_MS + 60_000)), Effect.provideService(TokenNet as never, net))
+    )
+    expect(next).toBe("tok-2")
+    expect(net.seen.length).toBe(2)
   })
 
   it("never places the token on any console", async () => {

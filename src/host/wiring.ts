@@ -23,6 +23,7 @@ import { basicCredit, bearerCredit, remote, smartCredit } from "../emr/adapter.j
 import type { Credit, Send } from "../emr/adapter.js"
 import type { AuthSmart, BackendConfig } from "../emr/backend.js"
 import { lifecycle } from "../emr/lifecycle.js"
+import type { Lifecycle } from "../emr/lifecycle.js"
 import { cache as tokenCache } from "../emr/token.js"
 import type { AssertionSigner, IssuerConfig, Post, Time } from "../emr/token.js"
 import { node } from "../emr/wire.js"
@@ -135,18 +136,23 @@ export const creditOf = (backend: BackendConfig): Credit => {
       return bearerCredit(backend.auth.token)
     case "basic":
       return basicCredit(backend.auth.username, backend.auth.password)
-    case "smart": {
-      const issuer = issuerOf(backend.auth)
-      const signer = signerOf(backend.auth)
-      const heldToken = tokenCache(issuer, signer)
+    case "smart":
       return smartCredit({
-        lf: lifecycle(issuer, signer, heldToken),
+        lf: credentialsOf(backend),
         clock: timeNow,
         post: postOf(backend),
         dependency: backend.name
       })
-    }
   }
+}
+
+export const credentialsOf = (backend: BackendConfig): Lifecycle => {
+  if (backend.auth === undefined || backend.auth.scheme !== "smart") {
+    throw new Error(`${backend.name}: no issuer without a smart scheme`)
+  }
+  const issuer = issuerOf(backend.auth)
+  const signer = signerOf(backend.auth)
+  return lifecycle(issuer, signer, tokenCache(issuer, signer))
 }
 
 export const overTransport = (
