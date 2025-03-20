@@ -3,6 +3,9 @@ import { issue, redeem } from "./cursor.js"
 
 const position = { type: "Patient", parameters: [["family", "Simpson"]] as ReadonlyArray<readonly [string, string]>, offset: 25 }
 
+const decodePayload = (token: string): string =>
+  Buffer.from(token.split(".")[0]!, "base64url").toString()
+
 describe("continuation token", () => {
   it("hands back the position it was issued for", () => {
     const token = issue(position)
@@ -10,9 +13,10 @@ describe("continuation token", () => {
   })
 
   it("says nothing about the query in the token text", () => {
-    expect(issue(position)).not.toContain("Simpson")
-    expect(issue(position)).not.toContain("Patient")
-    expect(issue(position)).not.toContain("25")
+    const payload = decodePayload(issue(position))
+    expect(payload).not.toContain("Simpson")
+    expect(payload).not.toContain("Patient")
+    expect(JSON.parse(payload)).toMatchObject({ o: 25 })
   })
 
   it("refuses a token whose text was altered", () => {
