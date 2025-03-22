@@ -264,6 +264,59 @@ describe("paging and element selection", () => {
   })
 })
 
+describe("AGT-13 a filter path that matched nothing is reported", () => {
+  const layered = engine({
+    read: () => Effect.succeed({ resourceType: "Patient", id: "p1", birthDate: "1956-05-12" })
+  })
+
+  it("states the missing path on a read, never silently dropping it", () => {
+    const result = invoke("read", { type: "Patient", id: "p1", elements: ["telecom.value"] }, layered)
+    expect(result.isError).toBe(false)
+    expect(body(result)).toEqual({ resourceType: "Patient", id: "p1" })
+    const note = result.content[1]
+    expect(note?.type).toBe("text")
+    expect(note?.text).toContain("telecom.value")
+  })
+
+  it("reports only the paths that matched nothing in a bundle", () => {
+    const layer = engine({
+      search: () =>
+        Effect.succeed({
+          resourceType: "Bundle",
+          type: "searchset",
+          total: 1,
+          entry: [{ resource: { resourceType: "Patient", id: "p1", gender: "male" } }]
+        })
+    })
+    const result = invoke("search", { type: "Patient", elements: ["name.family", "gender"] }, layer)
+    const note = result.content[1]
+    expect(note?.text).toContain("name.family")
+    expect(note?.text).not.toContain("gender")
+  })
+
+  it("says nothing when every requested path matched", () => {
+    const result = invoke("read", { type: "Patient", id: "p1", elements: ["birthDate"] }, layered)
+    expect(result.content).toHaveLength(1)
+  })
+
+  it("keeps a path matched by one entry out of the report", () => {
+    const layer = engine({
+      search: () =>
+        Effect.succeed({
+          resourceType: "Bundle",
+          type: "searchset",
+          total: 2,
+          entry: [
+            { resource: { resourceType: "Patient", id: "p1", name: [{ family: "Simpson" }] } },
+            { resource: { resourceType: "Patient", id: "p2", gender: "male" } }
+          ]
+        })
+    })
+    const result = invoke("search", { type: "Patient", elements: ["name.family", "gender"] }, layer)
+    expect(result.content).toHaveLength(1)
+  })
+})
+
 describe("repeated search parameters", () => {
   const watcher = (): { seen: ReadonlyArray<readonly [string, string]> } => ({ seen: [] })
 

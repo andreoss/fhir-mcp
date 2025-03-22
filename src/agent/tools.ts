@@ -4,7 +4,7 @@ import type { Bundle, FhirResource } from "../core/engine.js"
 import { Rejected, Unavailable, toOutcome } from "../core/outcome.js"
 import type { Failure, OperationOutcome } from "../core/outcome.js"
 import { issue, redeem } from "./cursor.js"
-import { keep } from "./elements.js"
+import { keep, missing, missingIn } from "./elements.js"
 import { CurrentSession, Limiter, limited } from "./limit.js"
 import type { Admission } from "./limit.js"
 import { OperationName, Parameters, flatten, named, refusal } from "./params.js"
@@ -200,11 +200,15 @@ const expired = (millis: number): ToolResult =>
 
 const succeeded = (
   value: unknown,
-  elided?: { readonly returned: number; readonly of: number }
-): ToolResult =>
-  elided === undefined
-    ? { content: text(value), isError: false }
-    : { content: text(value), isError: false, elided }
+  elided?: { readonly returned: number; readonly of: number },
+  gaps: ReadonlyArray<string> = []
+): ToolResult => ({
+  content: [...text(value), ...(gaps.length === 0
+    ? []
+    : [{ type: "text" as const, text: `elements matched nothing: ${gaps.join(", ")}` }])],
+  isError: false,
+  ...(elided === undefined ? {} : { elided })
+})
 
 const reasons = (error: ParseResult.ParseError): string =>
   ParseResult.ArrayFormatter.formatErrorSync(error)
@@ -232,9 +236,10 @@ const trimmed = (
   }))
   const total = found.total ?? all.length
   const bundle = { ...found, total, entry }
+  const gaps = missingIn(all.map((one) => one.resource as Record<string, unknown>), elements)
   return entry.length < total
-    ? succeeded(bundle, { returned: entry.length, of: total })
-    : succeeded(bundle)
+    ? succeeded(bundle, { returned: entry.length, of: total }, gaps)
+    : succeeded(bundle, undefined, gaps)
 }
 
 interface Asked {
@@ -290,7 +295,11 @@ const readTool = (args: unknown) =>
     if (spare !== undefined) return yield* reject(spare)
     const engine = yield* FhirEngine
     const resource: FhirResource = yield* engine.read(asked.type, asked.id)
-    return succeeded(keep(resource as Record<string, unknown>, asked.elements))
+    return succeeded(
+      keep(resource as Record<string, unknown>, asked.elements),
+      undefined,
+      missing(resource as Record<string, unknown>, asked.elements)
+    )
   })
 
 const searchTool = (args: unknown) =>
@@ -332,6 +341,10 @@ const searchTool = (args: unknown) =>
       ...entry,
       resource: keep(entry.resource as Record<string, unknown>, decoded.elements) as FhirResource
     }))
+    const gaps = missingIn(
+      all.map((entry) => entry.resource as Record<string, unknown>),
+      decoded.elements
+    )
     const next = offset + entries.length
     const more = next < total
     const bundle = {
@@ -342,7 +355,9 @@ const searchTool = (args: unknown) =>
         ? { link: [{ relation: "next", url: issue({ type: decoded.type, parameters, offset: next }) }] }
         : {})
     }
-    return more ? succeeded(bundle, { returned: next, of: total }) : succeeded(bundle)
+    return more
+      ? succeeded(bundle, { returned: next, of: total }, gaps)
+      : succeeded(bundle, undefined, gaps)
   })
 
 const capabilitiesTool = (args: unknown) =>
