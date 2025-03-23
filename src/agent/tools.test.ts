@@ -162,7 +162,7 @@ describe("tool surface, remaining paths", () => {
 
   it("counts what it returned when the engine reports no total", () => {
     const layer = engine({
-      search: () => Effect.succeed({ resourceType: "Bundle", type: "searchset", entry: bundleOf(40).entry })
+      search: () => Effect.succeed({ resourceType: "Bundle", type: "searchset", entry: bundleOf(40).entry ?? [] })
     })
     const result = invoke("search", { type: "Patient", max: 10 }, layer)
     expect(result.elided).toEqual({ returned: 10, of: 40 })
@@ -185,5 +185,70 @@ describe("tool surface, remaining paths", () => {
     })
     invoke("search", { type: "Patient", parameters: { family: "Simpson", _count: "5" } }, layer)
     expect(seen).toEqual([["family", "Simpson"], ["_count", "5"]])
+  })
+})
+
+describe("paging and element selection", () => {
+  it("hands back a continuation token when more remains", () => {
+    const layer = engine({ search: () => Effect.succeed(bundleOf(50)) })
+    const result = invoke("search", { type: "Patient", max: 10 }, layer)
+    const bundle = body(result)
+    expect(bundle.link[0].relation).toBe("next")
+    expect(typeof bundle.link[0].url).toBe("string")
+  })
+
+  it("offers no continuation when the answer is complete", () => {
+    const result = invoke("search", { type: "Patient", max: 10 })
+    expect(body(result).link).toBeUndefined()
+  })
+
+  it("continues from the token it issued", () => {
+    let asked = -1
+    const layer = engine({
+      search: (query) => {
+        asked = query.offset ?? 0
+        return Effect.succeed(bundleOf(50))
+      }
+    })
+    const first = invoke("search", { type: "Patient", max: 10 }, layer)
+    const token = body(first).link[0].url as string
+    invoke("search", { type: "Patient", max: 10, cursor: token }, layer)
+    expect(asked).toBe(10)
+  })
+
+  it("refuses a token that was not issued for this query", () => {
+    const layer = engine({ search: () => Effect.succeed(bundleOf(50)) })
+    const first = invoke("search", { type: "Patient", max: 10 }, layer)
+    const token = body(first).link[0].url as string
+    const result = invoke("search", { type: "Observation", max: 10, cursor: token }, layer)
+    expect(result.isError).toBe(true)
+    expect(body(result).issue[0].diagnostics).toContain("continuation token")
+  })
+
+  it("keeps only the elements asked for when reading", () => {
+    const layer = engine({
+      read: () => Effect.succeed({ resourceType: "Patient", id: "p1", birthDate: "1956-05-12", gender: "male" })
+    })
+    const result = invoke("read", { type: "Patient", id: "p1", elements: ["birthDate"] }, layer)
+    expect(body(result)).toEqual({ resourceType: "Patient", id: "p1", birthDate: "1956-05-12" })
+  })
+
+  it("keeps only the elements asked for in every entry of a bundle", () => {
+    const layer = engine({
+      search: () => Effect.succeed({
+        resourceType: "Bundle",
+        type: "searchset",
+        total: 1,
+        entry: [{ resource: { resourceType: "Patient", id: "p1", gender: "male", birthDate: "1956-05-12" } }]
+      })
+    })
+    const result = invoke("search", { type: "Patient", elements: ["gender"] }, layer)
+    expect(body(result).entry[0].resource).toEqual({ resourceType: "Patient", id: "p1", gender: "male" })
+  })
+
+  it("refuses an element path that is not an element path", () => {
+    const result = invoke("read", { type: "Patient", id: "p1", elements: ["name; drop"] })
+    expect(result.isError).toBe(true)
+    expect(body(result).issue[0].diagnostics).toContain("elements")
   })
 })
