@@ -12,6 +12,12 @@ export const negotiate = (asked: string | undefined): Negotiated => ({
 
 export interface Capabilities {
   readonly tools: { readonly listChanged: boolean }
+  readonly resources: { readonly subscribe: boolean; readonly listChanged: boolean }
+  readonly logging: Record<string, never>
 }
 
-export const capabilities = (): Capabilities => ({ tools: { listChanged: false } })
+export const capabilities = (): Capabilities => ({
+  tools: { listChanged: false },
+  resources: { subscribe: true, listChanged: true },
+  logging: {}
+})

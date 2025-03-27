@@ -53,4 +53,8 @@ export class Session {
   isSubscribed(uri: string): boolean {
     return this.subscribed.has(uri)
   }
+
+  hasSubscriptions(): boolean {
+    return this.subscribed.size > 0
+  }
 }
