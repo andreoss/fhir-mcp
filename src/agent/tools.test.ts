@@ -12,6 +12,7 @@ import {
   tools
 } from "./tools.js"
 import type { OperationCall } from "./tools.js"
+import { writeTools } from "./write.js"
 
 const patient: FhirResource = { resourceType: "Patient", id: "p1", birthDate: "1956-05-12" }
 
@@ -386,6 +387,23 @@ describe("AGT-15 discover before you search", () => {
   it("tells which resource types to ask capabilities for", () => {
     const capabilities = tools.find((one) => one.name === "capabilities")
     expect(capabilities?.description.toLowerCase()).toContain("type")
+  })
+})
+
+describe("AGT-18 operating rules travel in the description", () => {
+  it("carries the rules in every served tool description", () => {
+    for (const tool of tools) {
+      expect(tool.description).toContain("Operating rules")
+      expect(tool.description).toContain("capabilities")
+      expect(tool.description).toContain("rate-limited")
+    }
+  })
+
+  it("carries the rules in every write tool description too", () => {
+    for (const tool of writeTools) {
+      expect(tool.description).toContain("Operating rules")
+      expect(tool.description).toContain("refused")
+    }
   })
 })
 
