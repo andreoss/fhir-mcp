@@ -12,6 +12,7 @@ import {
   ListToolsRequestSchema,
   McpError,
   ReadResourceRequestSchema,
+  SetLevelRequestSchema,
   SubscribeRequestSchema,
   UnsubscribeRequestSchema
 } from "@modelcontextprotocol/sdk/types.js"
@@ -159,7 +160,7 @@ export const build = (
     }
   })
 
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const name = request.params.name
     if (!offeredNames.has(name)) {
       throw new McpError(ErrorCode.InvalidParams, `unknown tool: ${name}`)
@@ -167,6 +168,22 @@ export const build = (
     const args = request.params.arguments ?? {}
     const correlation = randomUUID()
     const at = typeof args["type"] === "string" ? args["type"] : ""
+    const session = own(extra.sessionId)
+    const token = request.params._meta?.progressToken
+    const report = async (progress: number, message: string) => {
+      if (token === undefined) return
+      await extra.sendNotification({
+        method: "notifications/progress",
+        params: { progressToken: token, progress, total: 2, message }
+      })
+    }
+    await report(1, `${name} started`)
+    if (session.canLog("info")) {
+      await extra.sendNotification({
+        method: "notifications/message",
+        params: { level: "info", logger: NAME, data: { tool: name, correlation } }
+      })
+    }
     const answered = writeNames.has(name) && writing !== undefined
       ? await writing.runPromise(
           Effect.flatMap(Grant, (held) =>
@@ -174,14 +191,20 @@ export const build = (
               ...held,
               correlation
             })
-          )
+          ),
+          { signal: extra.signal }
         )
       : await runtime.runPromise(
           edge(
             Effect.flatMap(Metrics, (meter) => meter.time(name, at, call(name, args))),
             correlation
-          )
+          ),
+          { signal: extra.signal }
         )
+    await report(2, `${name} answered`)
+    if (session.isCancelled(correlation)) {
+      throw new McpError(ErrorCode.InternalError, `cancelled: ${name}`)
+    }
     const result =
       name === REPORT ? reported(offered, answered, new Date().toISOString()) : answered
     const content = [...result.content]
@@ -194,6 +217,11 @@ export const build = (
       })
     }
     return { content, isError: result.isError }
+  })
+
+  server.setRequestHandler(SetLevelRequestSchema, async (request, extra) => {
+    own(extra.sessionId).setLogLevel(request.params.level)
+    return {}
   })
 
   server.setRequestHandler(ListResourcesRequestSchema, async (request, extra) => {
