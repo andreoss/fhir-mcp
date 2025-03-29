@@ -18,11 +18,24 @@ const quietly = async <A>(use: () => Promise<A>): Promise<A> => {
 const offered = async (env: Record<string, string | undefined>) =>
   quietly(async () => {
     const server = await Effect.runPromise(Effect.scoped(start(env)))
-    const listed = await (server as unknown as {
-      _requestHandlers: Map<string, (r: unknown, e: unknown) => Promise<{ tools: Array<{ name: string }> }>>
-    })._requestHandlers.get("tools/list")!({ method: "tools/list", params: {} }, {})
+    const list = (server as unknown as {
+      _requestHandlers: Map<
+        string,
+        (r: unknown, e: unknown) => Promise<{ tools: Array<{ name: string }>; nextCursor?: string }>
+      >
+    })._requestHandlers.get("tools/list")!
+    const names: Array<string> = []
+    let cursor: string | undefined
+    do {
+      const page = await list(
+        { method: "tools/list", params: { ...(cursor === undefined ? {} : { cursor }) } },
+        {}
+      )
+      names.push(...page.tools.map((tool) => tool.name))
+      cursor = page.nextCursor
+    } while (cursor !== undefined)
     await server.close()
-    return listed.tools.map((tool) => tool.name).sort()
+    return names.sort()
   })
 
 describe("what the running server offers", () => {
@@ -74,7 +87,11 @@ const called = async (
   if (handle === undefined) throw new Error("no tool handler")
   const result = await handle(
     { method: "tools/call", params: { name, arguments: args } },
-    {}
+    {
+      sessionId: "surface",
+      sendNotification: async () => undefined,
+      signal: new AbortController().signal
+    }
   )
   return JSON.parse(String(result.content[0]?.text)) as Record<string, unknown>
 }
