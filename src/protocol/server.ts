@@ -34,6 +34,7 @@ import { paginate } from "./cursor.js"
 import { TEMPLATES, address, uriOf } from "./resources.js"
 import type { ResourceEntry } from "./resources.js"
 import { Session } from "./session.js"
+import { briefed, draft } from "./sampling.js"
 import { completeArgument, render, workflows } from "./prompts.js"
 import { INSTRUCTIONS } from "./instructions.js"
 
@@ -243,16 +244,26 @@ export const build = (
     }))
   }))
 
-  server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+  server.setRequestHandler(GetPromptRequestSchema, async (request, extra) => {
     const given: Record<string, string> = {}
     for (const [key, value] of Object.entries(request.params.arguments ?? {})) {
       if (typeof value === "string") given[key] = value
     }
-    const rendered = render({ name: request.params.name, args: given })
+    const name = request.params.name
+    const rendered = render({ name, args: given })
     if (rendered === undefined) {
-      throw new McpError(ErrorCode.InvalidParams, `prompt not rendered: ${request.params.name}`)
+      throw new McpError(ErrorCode.InvalidParams, `prompt not rendered: ${name}`)
     }
-    return { messages: rendered }
+    const workflow = workflows.find((one) => one.name === name)
+    if (workflow?.sampling === undefined) return { messages: rendered }
+    const session = own(extra.sessionId)
+    const outcome = await draft(
+      workflow,
+      given,
+      session.sampling,
+      (params) => server.createMessage(params)
+    )
+    return { messages: [...rendered, briefed(outcome)] }
   })
 
   server.setRequestHandler(CompleteRequestSchema, async (request) => {
