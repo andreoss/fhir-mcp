@@ -2,27 +2,39 @@ import { Effect, Layer } from "effect"
 import type { Scope } from "effect"
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { ConfigError, load } from "../config/config.js"
-import { serveOverStdio } from "../protocol/server.js"
+import { build, serveOverStdio } from "../protocol/server.js"
+import { bridged } from "../protocol/bridge.js"
+import { serve } from "../protocol/http.js"
+import type { Endpoint, TransportError } from "../protocol/http.js"
 import { wiring } from "./compose.js"
 
-export class Unserved extends Error {
-  constructor(transport: string) {
-    super(`transport not served in this build: ${transport}`)
-    this.name = "Unserved"
-  }
+export type Mode = "stdio" | "http"
+
+export interface Running {
+  readonly mode: Mode
+  readonly server: Server
+  readonly endpoint: Endpoint | undefined
 }
 
 export const start = (
   env: Record<string, string | undefined>
-): Effect.Effect<Server, ConfigError | Unserved | Error, Scope.Scope> =>
+): Effect.Effect<Running, ConfigError | TransportError | Error, Scope.Scope> =>
   Effect.gen(function* () {
     const config = yield* load(env)
-    if (config.transport !== "stdio") {
-      return yield* Effect.fail(new Unserved(config.transport))
-    }
     const context = yield* Layer.build(Layer.orDie(wiring(config)))
     const all = Layer.succeedContext(context)
-    return yield* serveOverStdio(all, config.allowWrite ? all : undefined, all)
+    if (config.transport === "stdio") {
+      const server = yield* serveOverStdio(all, config.allowWrite ? all : undefined, all)
+      yield* Effect.addFinalizer(() => Effect.promise(() => server.close()))
+      return { mode: "stdio", server, endpoint: undefined }
+    }
+    const server = build(all, config.allowWrite ? all : undefined, all)
+    yield* Effect.addFinalizer(() => Effect.promise(() => server.close()))
+    const bridge = yield* bridged(server)
+    const endpoint = yield* serve(config, bridge.handler)
+    bridge.attach(endpoint)
+    yield* Effect.addFinalizer(() => endpoint.close)
+    return { mode: "http", server, endpoint }
   })
 
 export const main = (): Promise<void> =>
