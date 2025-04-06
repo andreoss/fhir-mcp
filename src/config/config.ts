@@ -1,5 +1,5 @@
 import { Data, Effect, ParseResult, Schema } from "effect"
-import { MissingField, parse } from "../emr/backend.js"
+import { BackendRejected, parse } from "../emr/backend.js"
 import type { BackendConfig, BackendInput } from "../emr/backend.js"
 import { SECRET_KEY_ENV, open } from "./secrets.js"
 
@@ -135,13 +135,26 @@ const shape = (decoded: typeof Fields.Type): Config => ({
   logLevel: decoded.FHIR_LOG_LEVEL
 })
 
+const FIELD_ENV: Readonly<Record<string, string>> = {
+  name: EMR.BACKEND,
+  baseUrl: EMR.BASE_URL,
+  provider: EMR.PROVIDER,
+  timeoutMs: EMR.TIMEOUT_MS,
+  retryAfterMs: EMR.RETRY_AFTER_MS,
+  "auth.scheme": EMR.AUTH_SCHEME,
+  "auth.token": EMR.AUTH_TOKEN,
+  "auth.username": EMR.AUTH_USERNAME,
+  "auth.password": EMR.AUTH_PASSWORD,
+  "auth.tokenUrl": EMR.AUTH_TOKEN_URL,
+  "auth.clientId": EMR.AUTH_CLIENT_ID,
+  "auth.kid": EMR.AUTH_KID,
+  "auth.key": EMR.AUTH_KEY,
+  "auth.assertionLifetimeMs": EMR.AUTH_ASSERTION_LIFETIME_MS,
+  "auth.refreshMarginMs": EMR.AUTH_REFRESH_MARGIN_MS
+}
+
 const anyEmr = (env: Record<string, string | undefined>): boolean =>
   Object.keys(env).some((key) => key.startsWith(EMR_PREFIX))
-
-const hasAuthScheme = (env: Record<string, string | undefined>): boolean => {
-  const raw = env[EMR.AUTH_SCHEME]
-  return raw !== undefined && raw.trim().length > 0
-}
 
 const SECRET_FIELDS: ReadonlySet<string> = new Set([
   EMR.AUTH_TOKEN,
@@ -176,21 +189,19 @@ const readEmr = (
     provider: value(EMR.PROVIDER),
     timeoutMs: value(EMR.TIMEOUT_MS),
     retryAfterMs: value(EMR.RETRY_AFTER_MS),
-    auth: hasAuthScheme(env)
-      ? {
-        scheme: value(EMR.AUTH_SCHEME),
-        token: value(EMR.AUTH_TOKEN),
-        username: value(EMR.AUTH_USERNAME),
-        password: value(EMR.AUTH_PASSWORD),
-        tokenUrl: value(EMR.AUTH_TOKEN_URL),
-        clientId: value(EMR.AUTH_CLIENT_ID),
-        kid: value(EMR.AUTH_KID),
-        key: value(EMR.AUTH_KEY),
-        scope: value(EMR.AUTH_SCOPE),
-        assertionLifetimeMs: value(EMR.AUTH_ASSERTION_LIFETIME_MS),
-        refreshMarginMs: value(EMR.AUTH_REFRESH_MARGIN_MS)
-      }
-      : undefined
+    auth: {
+      scheme: value(EMR.AUTH_SCHEME),
+      token: value(EMR.AUTH_TOKEN),
+      username: value(EMR.AUTH_USERNAME),
+      password: value(EMR.AUTH_PASSWORD),
+      tokenUrl: value(EMR.AUTH_TOKEN_URL),
+      clientId: value(EMR.AUTH_CLIENT_ID),
+      kid: value(EMR.AUTH_KID),
+      key: value(EMR.AUTH_KEY),
+      scope: value(EMR.AUTH_SCOPE),
+      assertionLifetimeMs: value(EMR.AUTH_ASSERTION_LIFETIME_MS),
+      refreshMarginMs: value(EMR.AUTH_REFRESH_MARGIN_MS)
+    }
   }
   if (refused !== undefined) {
     problems.push(refused)
@@ -199,8 +210,14 @@ const readEmr = (
   try {
     return parse(input)
   } catch (error) {
-    if (error instanceof MissingField) problems.push(error.message)
-    else problems.push(`emr: ${error instanceof Error ? error.message : String(error)}`)
+    if (error instanceof BackendRejected) {
+      for (const problem of error.problems) {
+        const key = FIELD_ENV[problem.field]
+        problems.push(key === undefined ? problem.message : `${key}: ${problem.message}`)
+      }
+    } else {
+      problems.push(`emr: ${error instanceof Error ? error.message : String(error)}`)
+    }
     return undefined
   }
 }
