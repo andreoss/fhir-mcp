@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto"
 import { createServer } from "node:http"
+import { createServer as createSecureServer } from "node:https"
 import type { IncomingMessage, ServerResponse } from "node:http"
+import type { AddressInfo } from "node:net"
 import type { Socket } from "node:net"
 import { Cause, Data, Effect, Exit, Option } from "effect"
 import type { Config } from "../config/config.js"
@@ -39,8 +41,23 @@ export interface Incoming {
 
 export type Handler = (message: Incoming) => Effect.Effect<unknown, Fault>
 
+export interface Secure {
+  readonly cert: string
+  readonly key: string
+  readonly passphrase: string | undefined
+}
+
 export interface Options {
   readonly deletable: boolean
+  readonly secure?: Secure
+}
+
+interface Listener {
+  on(event: "connection", hear: (socket: Socket) => void): void
+  on(event: "error", hear: (cause: Error) => void): void
+  listen(port: number, host: string, ready: () => void): void
+  close(done: (cause?: Error | null) => void): void
+  address(): AddressInfo | string | null
 }
 
 export interface Endpoint {
@@ -429,9 +446,22 @@ export const serve = (
       })
     }
 
-    const server = createServer((req, res) => {
-      void route(req, res)
-    })
+    const secure = options?.secure
+    const server: Listener =
+      secure === undefined
+        ? createServer((req, res) => {
+            void route(req, res)
+          })
+        : createSecureServer(
+            {
+              cert: secure.cert,
+              key: secure.key,
+              ...(secure.passphrase === undefined ? {} : { passphrase: secure.passphrase })
+            },
+            (req, res) => {
+              void route(req, res)
+            }
+          )
 
     server.on("connection", (socket) => {
       sockets.add(socket)
