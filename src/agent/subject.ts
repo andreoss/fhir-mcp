@@ -18,7 +18,7 @@ export const known: Effect.Effect<Subject> = Effect.map(
   Option.match({ onNone: () => ANONYMOUS, onSome: (found: Subject) => found })
 )
 
-export const named = (subject: Subject): string => `${subject.kind}:${subject.id}`
+export const labelled = (subject: Subject): string => `${subject.kind}:${subject.id}`
 
 export const compartmentOf = (subject: Subject): string | undefined =>
   subject.kind === "patient" ? subject.id : undefined

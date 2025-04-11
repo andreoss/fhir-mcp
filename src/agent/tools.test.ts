@@ -3,6 +3,7 @@ import { Effect, Layer } from "effect"
 import { FhirEngine } from "../core/engine.js"
 import type { Bundle, Engine, FhirResource, SearchQuery } from "../core/engine.js"
 import { Forbidden, NotFound, Unavailable } from "../core/outcome.js"
+import { Correlated } from "../obs/correlation.js"
 import {
   DEFAULT_DEADLINE_MS,
   DEFAULT_MAX_ENTRIES,
@@ -12,7 +13,11 @@ import {
   tools
 } from "./tools.js"
 import type { OperationCall } from "./tools.js"
-import { writeTools } from "./write.js"
+import { Journal } from "./audit.js"
+import type { Entry } from "./audit.js"
+import { Limiter } from "./limit.js"
+import { CurrentSubject } from "./subject.js"
+import { Grant, writeTools } from "./write.js"
 
 const patient: FhirResource = { resourceType: "Patient", id: "p1", birthDate: "1956-05-12" }
 
@@ -627,5 +632,135 @@ describe("tool call deadline", () => {
     )
     const result = await fired("search", { type: "Patient" }, layer)
     expect(body(result).issue[0].diagnostics).toContain("20")
+  })
+})
+
+describe("SEC-13 every tool call is audited", () => {
+  const trail = (over: Partial<Engine> = {}) => {
+    const entries: Array<Entry> = []
+    const layer = Layer.merge(
+      engine(over),
+      Layer.succeed(Journal, {
+        note: (entry: Entry) =>
+          Effect.sync(() => {
+            entries.push(entry)
+          })
+      })
+    )
+    return { entries, layer }
+  }
+
+  it("records a read, a search and a capabilities call", () => {
+    const { entries, layer } = trail()
+    invoke("read", { type: "Patient", id: "p1" }, layer)
+    invoke("search", { type: "Patient", parameters: { family: "Simpson" } }, layer)
+    invoke("capabilities", { type: "Patient" }, layer)
+    expect(entries.map((one) => one.tool)).toEqual(["read", "search", "capabilities"])
+    for (const entry of entries) {
+      expect(entry.outcome).toBe("success")
+      expect(entry.interaction).toBe(entry.tool)
+      expect(typeof entry.at).toBe("string")
+      expect(entry.actor).toBe("anonymous")
+    }
+  })
+
+  it("records exactly one entry per call", () => {
+    const { entries, layer } = trail()
+    invoke("read", { type: "Patient", id: "p1" }, layer)
+    expect(entries).toHaveLength(1)
+  })
+
+  it("joins the record to the correlation the call was made under", () => {
+    const { entries, layer } = trail()
+    const correlated = Layer.merge(layer, Layer.succeed(Correlated, { id: "c-13" }))
+    invoke("search", { type: "Patient" }, correlated)
+    expect(entries[0]?.correlation).toBe("c-13")
+  })
+
+  it("falls back to the grant correlation when no call is in flight", () => {
+    const { entries, layer } = trail()
+    const granted = Layer.merge(layer, Layer.succeed(Grant, { write: false, correlation: "g-13" }))
+    invoke("capabilities", {}, granted)
+    expect(entries[0]?.correlation).toBe("g-13")
+  })
+
+  it("names the interaction an operation performed, not the tool it came in on", () => {
+    const { entries, layer } = trail()
+    const served = Layer.merge(
+      layer,
+      Layer.succeed(FhirOperations, {
+        invoke: () => Effect.succeed({ resourceType: "Bundle", type: "searchset", total: 0, entry: [] })
+      })
+    )
+    invoke("read", { type: "Patient", id: "p1", operation: "$everything" }, served)
+    expect(entries[0]?.tool).toBe("read")
+    expect(entries[0]?.interaction).toBe("$everything")
+    expect(entries[0]?.outcome).toBe("success")
+  })
+
+  it("records a tool the surface does not serve as refused", () => {
+    const { entries, layer } = trail()
+    invoke("drop_database", {}, layer)
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.tool).toBe("drop_database")
+    expect(entries[0]?.outcome).toBe("refused")
+  })
+
+  it("records arguments the schema refused as refused", () => {
+    const { entries, layer } = trail()
+    invoke("read", { type: "Patient" }, layer)
+    expect(entries[0]?.tool).toBe("read")
+    expect(entries[0]?.outcome).toBe("refused")
+  })
+
+  it("records a call the limiter refused as refused", () => {
+    const { entries, layer } = trail()
+    const limited = Layer.merge(
+      layer,
+      Layer.succeed(Limiter, { check: () => Effect.succeed({ kind: "refused" as const, retryAfterSeconds: 1 }) })
+    )
+    invoke("read", { type: "Patient", id: "p1" }, limited)
+    expect(entries[0]?.outcome).toBe("refused")
+    expect(entries[0]?.tool).toBe("read")
+  })
+
+  it("records a resource the engine did not find as failed", () => {
+    const { entries, layer } = trail()
+    invoke("read", { type: "Patient", id: "nope" }, layer)
+    expect(entries[0]?.outcome).toBe("failed")
+  })
+
+  it("records a call that overran its deadline as failed", async () => {
+    const { entries, layer } = trail({ read: () => Effect.never })
+    const bounded = Layer.merge(layer, Layer.succeed(Deadline, { millis: 20 }))
+    await fired("read", { type: "Patient", id: "p1" }, bounded)
+    expect(entries[0]?.outcome).toBe("failed")
+  })
+
+  it("names the actor as a digest of the token presented", () => {
+    const { entries, layer } = trail()
+    const granted = Layer.merge(
+      layer,
+      Layer.succeed(Grant, { write: false, correlation: "c", token: "secret-bearer" })
+    )
+    invoke("read", { type: "Patient", id: "p1" }, granted)
+    expect(entries[0]?.actor).toHaveLength(64)
+    expect(entries[0]?.actor).not.toContain("secret-bearer")
+  })
+
+  it("names the subject the call was made as", () => {
+    const { entries, layer } = trail()
+    const asPatient = Layer.merge(
+      layer,
+      Layer.succeed(CurrentSubject, { id: "p1", kind: "patient" })
+    )
+    invoke("read", { type: "Patient", id: "p1" }, asPatient)
+    expect(entries[0]?.subject).toBe("patient:p1")
+  })
+
+  it("carries no subject when none was authenticated", () => {
+    const { entries, layer } = trail()
+    invoke("read", { type: "Patient", id: "p1" }, layer)
+    expect(entries[0]?.subject).toBeUndefined()
   })
 })

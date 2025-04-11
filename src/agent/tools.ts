@@ -3,6 +3,11 @@ import { FhirEngine } from "../core/engine.js"
 import type { Bundle, Engine, FhirResource } from "../core/engine.js"
 import { Rejected, Unavailable, toOutcome } from "../core/outcome.js"
 import type { Failure, OperationOutcome } from "../core/outcome.js"
+import { Correlated } from "../obs/correlation.js"
+import { Grant } from "./write.js"
+import type { Capabilities } from "./write.js"
+import { Journal, NONE, interactionOf, record, verdict } from "./audit.js"
+import { CurrentSubject, labelled } from "./subject.js"
 import { issue, redeem } from "./cursor.js"
 import { READ_RULES } from "./rules.js"
 import { keep, missing, missingIn } from "./elements.js"
@@ -392,9 +397,59 @@ const bound = Effect.serviceOption(Deadline).pipe(
   )
 )
 
+const outcomeIn = (result: ToolResult): OperationOutcome | undefined => {
+  const first = result.content[0]
+  if (first === undefined) return undefined
+  const parsed = JSON.parse(first.text) as {
+    readonly resourceType?: string
+    readonly issue?: ReadonlyArray<unknown>
+  }
+  return parsed.resourceType === "OperationOutcome" && parsed.issue !== undefined
+    ? (parsed as OperationOutcome)
+    : undefined
+}
+
+const verdictIn = (result: ToolResult): "success" | "refused" | "failed" => {
+  const found = outcomeIn(result)
+  return found === undefined ? "success" : verdict(found)
+}
+
+const correlationOf = Effect.gen(function* () {
+  const correlated = yield* Effect.serviceOption(Correlated)
+  if (Option.isSome(correlated)) return correlated.value.id
+  const grant = yield* Effect.serviceOption(Grant)
+  return Option.isSome(grant) ? grant.value.correlation : NONE
+})
+
+const tokenOf = Effect.map(
+  Effect.serviceOption(Grant),
+  Option.match({
+    onNone: () => undefined,
+    onSome: (held: Capabilities) => held.token
+  })
+)
+
 export const call = (name: string, args: unknown): Effect.Effect<ToolResult, never, FhirEngine> =>
   Effect.gen(function* () {
+    const journal = yield* Effect.serviceOption(Journal)
+    const correlation = yield* correlationOf
+    const token = yield* tokenOf
+    const subject = yield* Effect.serviceOption(CurrentSubject)
+    const tell = (outcome: "success" | "refused" | "failed") =>
+      Option.isSome(journal)
+        ? journal.value.note(
+            record({
+              correlation,
+              tool: name,
+              interaction: interactionOf(args) ?? name,
+              outcome,
+              ...(Option.isSome(subject) ? { subject: labelled(subject.value) } : {}),
+              ...(token === undefined ? {} : { token })
+            })
+          )
+        : Effect.void
     if (!names.has(name)) {
+      yield* tell("refused")
       return failed(new Rejected({ reason: `unknown tool: ${name}` }))
     }
     const millis = yield* bound
@@ -406,11 +461,12 @@ export const call = (name: string, args: unknown): Effect.Effect<ToolResult, nev
       admission = yield* maybeLimiter.value.check(name, sessionId)
     }
     if (admission.kind === "refused") {
+      yield* tell("refused")
       return limited(name, admission.retryAfterSeconds)
     }
     const chosen =
       name === "read" ? readTool(args) : name === "search" ? searchTool(args) : capabilitiesTool(args)
-    return yield* chosen.pipe(
+    const answered = yield* chosen.pipe(
       Effect.catchAll((failure) => Effect.succeed(failed(failure))),
       Effect.timeoutTo({
         duration: Duration.millis(millis),
@@ -419,4 +475,6 @@ export const call = (name: string, args: unknown): Effect.Effect<ToolResult, nev
       }),
       Effect.ensuring(admission.release)
     )
+    yield* tell(verdictIn(answered))
+    return answered
   })
