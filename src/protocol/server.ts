@@ -280,6 +280,60 @@ export const build = (
     return { completion: { values: [...values], total: values.length, hasMore: false } }
   })
 
+  server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+    prompts: workflows.map((one) => ({
+      name: one.name,
+      description: one.description,
+      arguments: one.arguments.map((argument) => ({
+        name: argument.name,
+        description: argument.description,
+        required: argument.required === true
+      }))
+    }))
+  }))
+
+  server.setRequestHandler(GetPromptRequestSchema, async (request, extra) => {
+    const given: Record<string, string> = {}
+    for (const [key, value] of Object.entries(request.params.arguments ?? {})) {
+      if (typeof value === "string") given[key] = value
+    }
+    const name = request.params.name
+    const found = workflows.find((one) => one.name === name)
+    const rendered = render({ name, args: given })
+    if (found === undefined || rendered === undefined) {
+      throw new McpError(ErrorCode.InvalidParams, `prompt not served: ${name}`)
+    }
+    const messages: Array<{
+      readonly role: "user" | "assistant"
+      readonly content: { readonly type: "text"; readonly text: string }
+    }> = [...rendered]
+    if (found.sampling !== undefined) {
+      const session = own(extra.sessionId)
+      const outcome = await draft(found, given, session.sampling, (params) =>
+        server.createMessage(params)
+      )
+      messages.push(briefed(outcome))
+    }
+    return { messages }
+  })
+
+  server.setRequestHandler(CompleteRequestSchema, async (request) => {
+    const ref = request.params.ref
+    const asked = request.params.argument
+    if (ref.type !== "ref/prompt") return { completion: { values: [] } }
+    const types = await runtime.runPromise(
+      Effect.flatMap(FhirEngine, (held) => held.resourceTypes())
+    )
+    const values = completeArgument({
+      name: ref.name,
+      argument: asked.name,
+      value: asked.value,
+      tools: [...offeredNames],
+      types: [...types]
+    })
+    return { completion: { values: [...values], total: values.length, hasMore: false } }
+  })
+
   server.setRequestHandler(SetLevelRequestSchema, async (request, extra) => {
     own(extra.sessionId).setLogLevel(request.params.level)
     return {}
