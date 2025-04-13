@@ -764,3 +764,97 @@ describe("SEC-13 every tool call is audited", () => {
     expect(entries[0]?.subject).toBeUndefined()
   })
 })
+
+describe("SEC-14 the record names what was touched", () => {
+  const trail = (over: Partial<Engine> = {}) => {
+    const entries: Array<Entry> = []
+    const layer = Layer.merge(
+      engine(over),
+      Layer.succeed(Journal, {
+        note: (entry: Entry) =>
+          Effect.sync(() => {
+            entries.push(entry)
+          })
+      })
+    )
+    return { entries, layer }
+  }
+
+  const only = (name: string, args: unknown, over: Partial<Engine> = {}): Entry => {
+    const { entries, layer } = trail(over)
+    invoke(name, args, layer)
+    const entry = entries[0]
+    if (entry === undefined) throw new Error("nothing was recorded")
+    return entry
+  }
+
+  it("names the type and the id a read touched", () => {
+    const entry = only("read", { type: "Patient", id: "p1" })
+    expect(entry.type).toBe("Patient")
+    expect(entry.id).toBe("p1")
+  })
+
+  it("names the type a search touched and the parameters it used", () => {
+    const entry = only("search", { type: "Patient", parameters: { family: "Simpson", birthdate: "1956" } })
+    expect(entry.type).toBe("Patient")
+    expect(entry.parameters).toEqual(["family", "birthdate"])
+  })
+
+  it("names a repeated parameter once", () => {
+    const entry = only("search", {
+      type: "Patient",
+      parameters: { date: ["ge2024-01-01", "le2024-12-31"] }
+    })
+    expect(entry.parameters).toEqual(["date"])
+  })
+
+  it("never carries the values a search was made with", () => {
+    const entry = only("search", { type: "Patient", parameters: { family: "Simpson" } })
+    expect(JSON.stringify(entry)).not.toContain("Simpson")
+  })
+
+  it("names the elements a read asked to keep", () => {
+    const entry = only("read", { type: "Patient", id: "p1", elements: ["name.family", "birthDate"] })
+    expect(entry.elements).toEqual(["name.family", "birthDate"])
+    expect(entry.type).toBe("Patient")
+  })
+
+  it("names the elements a search asked to keep", () => {
+    const entry = only("search", { type: "Patient", elements: ["gender"] })
+    expect(entry.elements).toEqual(["gender"])
+  })
+
+  it("carries no elements when none were asked for", () => {
+    expect(only("read", { type: "Patient", id: "p1" }).elements).toBeUndefined()
+    expect(only("search", { type: "Patient" }).parameters).toBeUndefined()
+  })
+
+  it("names the type a capabilities call asked about", () => {
+    const entry = only("capabilities", { type: "Patient" })
+    expect(entry.type).toBe("Patient")
+    expect(entry.id).toBeUndefined()
+  })
+
+  it("keeps an unusable type or id out of the record", () => {
+    const entry = only("read", { type: "patient; drop", id: "../../etc" })
+    expect(entry.type).toBeUndefined()
+    expect(entry.id).toBeUndefined()
+  })
+
+  it("names the parameters an operation was called with", () => {
+    const { entries, layer } = trail()
+    const served = Layer.merge(
+      layer,
+      Layer.succeed(FhirOperations, {
+        invoke: () => Effect.succeed({ resourceType: "Bundle", type: "searchset", total: 0, entry: [] })
+      })
+    )
+    invoke(
+      "read",
+      { type: "Patient", id: "p1", operation: "$everything", parameters: { _type: "Observation" } },
+      served
+    )
+    expect(entries[0]?.parameters).toEqual(["_type"])
+    expect(entries[0]?.interaction).toBe("$everything")
+  })
+})
