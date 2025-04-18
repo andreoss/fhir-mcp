@@ -10,12 +10,24 @@ import {
 } from "@modelcontextprotocol/sdk/types.js"
 import type { FhirEngine } from "../core/engine.js"
 import { call, tools } from "../agent/tools.js"
+import type { ToolSpec } from "../agent/tools.js"
+import { callWrite, writeTools } from "../agent/write.js"
+import type { Grant, Journal } from "../agent/write.js"
+import type { Rules, Versions } from "../core/interactions.js"
 import { PINNED_REVISION, capabilities, negotiate } from "./revision.js"
 
-const known = new Set(tools.map((tool) => tool.name))
+const writeNames = new Set(writeTools.map((tool) => tool.name))
 
-export const build = (engine: Layer.Layer<FhirEngine>): Server => {
+export type Writes = Layer.Layer<Versions | Rules | Grant | Journal>
+
+export const surface = (writable: boolean): ReadonlyArray<ToolSpec> =>
+  writable ? [...tools, ...writeTools] : tools
+
+export const build = (engine: Layer.Layer<FhirEngine>, writes?: Writes): Server => {
   const runtime = ManagedRuntime.make(engine)
+  const writing = writes === undefined ? undefined : ManagedRuntime.make(writes)
+  const offered = surface(writing !== undefined)
+  const offeredNames = new Set(offered.map((tool) => tool.name))
   const server = new Server(
     { name: "fhir-mcp", version: "0.0.0" },
     { capabilities: capabilities() }
@@ -31,7 +43,7 @@ export const build = (engine: Layer.Layer<FhirEngine>): Server => {
   })
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: tools.map((tool) => ({
+    tools: offered.map((tool) => ({
       name: tool.name,
       description: tool.description,
       inputSchema: tool.inputSchema,
@@ -41,10 +53,13 @@ export const build = (engine: Layer.Layer<FhirEngine>): Server => {
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const name = request.params.name
-    if (!known.has(name)) {
+    if (!offeredNames.has(name)) {
       throw new McpError(ErrorCode.InvalidParams, `unknown tool: ${name}`)
     }
-    const result = await runtime.runPromise(call(name, request.params.arguments ?? {}))
+    const args = request.params.arguments ?? {}
+    const result = writeNames.has(name) && writing !== undefined
+      ? await writing.runPromise(callWrite(name, args))
+      : await runtime.runPromise(call(name, args))
     return { content: [...result.content], isError: result.isError }
   })
 
@@ -52,15 +67,19 @@ export const build = (engine: Layer.Layer<FhirEngine>): Server => {
   server.close = async () => {
     await close()
     await runtime.dispose()
+    if (writing !== undefined) await writing.dispose()
   }
 
   return server
 }
 
-export const serveOverStdio = (engine: Layer.Layer<FhirEngine>): Effect.Effect<Server, Error> =>
+export const serveOverStdio = (
+  engine: Layer.Layer<FhirEngine>,
+  writes?: Writes
+): Effect.Effect<Server, Error> =>
   Effect.tryPromise({
     try: async () => {
-      const server = build(engine)
+      const server = build(engine, writes)
       await server.connect(new StdioServerTransport())
       return server
     },

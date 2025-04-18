@@ -2,10 +2,8 @@ import { Effect, Layer } from "effect"
 import type { Scope } from "effect"
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { ConfigError, load } from "../config/config.js"
-import type { Config } from "../config/config.js"
-import { FhirEngine } from "../core/engine.js"
 import { serveOverStdio } from "../protocol/server.js"
-import { open } from "../store/store.js"
+import { wiring } from "./compose.js"
 
 export class Unserved extends Error {
   constructor(transport: string) {
@@ -13,9 +11,6 @@ export class Unserved extends Error {
     this.name = "Unserved"
   }
 }
-
-const engineLayer = (config: Config): Layer.Layer<FhirEngine, never, Scope.Scope> =>
-  Layer.scoped(FhirEngine, Effect.orDie(open(config.store.path)))
 
 export const start = (
   env: Record<string, string | undefined>
@@ -25,10 +20,9 @@ export const start = (
     if (config.transport !== "stdio") {
       return yield* Effect.fail(new Unserved(config.transport))
     }
-    const engine = yield* Layer.build(engineLayer(config)).pipe(
-      Effect.map((context) => Layer.succeedContext(context))
-    )
-    return yield* serveOverStdio(engine)
+    const context = yield* Layer.build(Layer.orDie(wiring(config)))
+    const all = Layer.succeedContext(context)
+    return yield* serveOverStdio(all, config.allowWrite ? all : undefined)
   })
 
 export const main = (): Promise<void> =>

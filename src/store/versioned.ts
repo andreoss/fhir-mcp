@@ -273,6 +273,11 @@ const make = (connection: DuckDBConnection): Wired => {
   }
 }
 
+export const versionedOn = (connection: DuckDBConnection): Effect.Effect<Versioned, Failure> => {
+  const store = make(connection)
+  return Effect.as(store.migrate, store)
+}
+
 export const open = (path: string): Effect.Effect<Versioned, Failure, Scope.Scope> =>
   Effect.acquireRelease(
     Effect.tryPromise({
