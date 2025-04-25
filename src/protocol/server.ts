@@ -20,10 +20,12 @@ import {
   UnsubscribeRequestSchema
 } from "@modelcontextprotocol/sdk/types.js"
 import { FhirEngine } from "../core/engine.js"
+import type { TerminologyPort } from "../terminology/port.js"
 import { call, tools } from "../agent/tools.js"
 import type { ToolResult, ToolSpec } from "../agent/tools.js"
 import { Grant, callWrite, writeTools } from "../agent/write.js"
 import type { Journal } from "../agent/write.js"
+import { callTerminology, terminologyTools } from "../agent/terminology.js"
 import { statements } from "../conformance/capability.js"
 import { REGISTRIES, versions } from "../conformance/versions.js"
 import type { Rules, Versions } from "../core/interactions.js"
@@ -65,8 +67,14 @@ export type Writes = Layer.Layer<Versions | Rules | Grant | Journal>
 
 export type Observed = Layer.Layer<Metrics>
 
-export const surface = (writable: boolean): ReadonlyArray<ToolSpec> =>
-  writable ? [...tools, ...writeTools] : tools
+export const surface = (
+  writable: boolean,
+  withTerms = false
+): ReadonlyArray<ToolSpec> => [
+  ...tools,
+  ...(withTerms ? terminologyTools : []),
+  ...(writable ? writeTools : [])
+]
 
 const unmetered: Observed = Layer.succeed(Metrics, {
   record: () => Effect.void,
@@ -104,11 +112,13 @@ export const reported = (
 export const build = (
   engine: Layer.Layer<FhirEngine>,
   writes?: Writes,
-  observed: Observed = unmetered
+  observed: Observed = unmetered,
+  terms?: Layer.Layer<TerminologyPort>
 ): Server => {
   const runtime = ManagedRuntime.make(Layer.merge(engine, observed))
   const writing = writes === undefined ? undefined : ManagedRuntime.make(writes)
-  const offered = surface(writing !== undefined)
+  const terminology = terms === undefined ? undefined : ManagedRuntime.make(terms)
+  const offered = surface(writing !== undefined, terminology !== undefined)
   const offeredNames = new Set(offered.map((tool) => tool.name))
   const server = new Server(
     { name: NAME, version: VERSION },
@@ -194,7 +204,10 @@ export const build = (
         params: { level: "info", logger: NAME, data: { tool: name, correlation } }
       })
     }
-    const answered = writeNames.has(name) && writing !== undefined
+    const lookup = terminology !== undefined && terminologyTools.some((tool) => tool.name === name)
+    const answered = lookup
+      ? await terminology.runPromise(callTerminology(name, args), { signal: extra.signal })
+      : writeNames.has(name) && writing !== undefined
       ? await writing.runPromise(
           Effect.flatMap(Grant, (held) =>
             Effect.provideService(callWrite(name, args), Grant, {
@@ -408,11 +421,12 @@ export const build = (
 export const serveOverStdio = (
   engine: Layer.Layer<FhirEngine>,
   writes?: Writes,
-  observed?: Observed
+  observed?: Observed,
+  terms?: Layer.Layer<TerminologyPort>
 ): Effect.Effect<Server, Error> =>
   Effect.tryPromise({
     try: async () => {
-      const server = build(engine, writes, observed)
+      const server = build(engine, writes, observed, terms)
       await server.connect(new StdioServerTransport())
       return server
     },
