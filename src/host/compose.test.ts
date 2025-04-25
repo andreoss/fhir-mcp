@@ -54,7 +54,14 @@ describe("composition", () => {
             return yield* Journal
           }),
           journalToErrors
-        ), (ledger) => ledger.note({ at: "t", correlation: "c1", actor: "anonymous", tool: "create", outcome: "success" }))
+        ), (ledger) => ledger.note({
+          at: "t",
+          correlation: "c1",
+          actor: "anonymous",
+          tool: "create",
+          interaction: "create",
+          outcome: "success"
+        }))
       )
     } finally {
       process.stderr.write = original

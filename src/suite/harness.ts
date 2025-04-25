@@ -199,8 +199,16 @@ export const open = async (options: Spawned = {}): Promise<Session> => {
   tell("notifications/initialized")
 
   const listTools = async (): Promise<ReadonlyArray<Listed>> => {
-    const answer = await ask("tools/list")
-    return (answer.result?.["tools"] ?? []) as ReadonlyArray<Listed>
+    const tools: Array<Listed> = []
+    let cursor: string | undefined
+    do {
+      const answer = await ask("tools/list", cursor === undefined ? undefined : { cursor })
+      const page = (answer.result?.["tools"] ?? []) as ReadonlyArray<Listed>
+      tools.push(...page)
+      const after = answer.result?.["nextCursor"]
+      cursor = typeof after === "string" ? after : undefined
+    } while (cursor !== undefined)
+    return tools
   }
 
   const callTool = async (name: string, args: unknown): Promise<Called> => {

@@ -4,7 +4,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { PINNED_REVISION } from "../protocol/revision.js"
+import { PINNED_REVISION, capabilities } from "../protocol/revision.js"
 import { defaultEntry, ensure } from "./build.js"
 import { envOf, open } from "./harness.js"
 import type { Listed, Session } from "./harness.js"
@@ -36,7 +36,7 @@ describe("a writable build driven over stdio", () => {
 
   it("answers the pinned revision and names itself at initialize", () => {
     expect(session.greeting["protocolVersion"]).toBe(PINNED_REVISION)
-    expect(session.greeting["capabilities"]).toEqual({ tools: { listChanged: false } })
+    expect(session.greeting["capabilities"]).toEqual(capabilities())
     expect(record(session.greeting["serverInfo"])["name"]).toBe("fhir-mcp")
   })
 
@@ -247,7 +247,7 @@ describe("an off the shelf client", () => {
     const client = new Client({ name: "suite", version: "0" }, { capabilities: {} })
     await client.connect(transport)
     expect(client.getServerVersion()?.name).toBe("fhir-mcp")
-    expect(client.getServerCapabilities()).toEqual({ tools: { listChanged: false } })
+    expect(client.getServerCapabilities()).toEqual(capabilities())
     const listed = await client.listTools()
     expect(listed.tools.map((tool) => tool.name)).toContain("create")
     const called = await client.callTool({

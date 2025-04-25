@@ -6,6 +6,10 @@
     "src/agent/elements.ts",
     "src/agent/limit.ts",
     "src/agent/params.ts",
+    "src/agent/redact.ts",
+    "src/agent/rules.ts",
+    "src/agent/subject.ts",
+    "src/agent/terminology.ts",
     "src/agent/tools.ts",
     "src/agent/write.ts",
     "src/auth/algs.ts",
@@ -70,6 +74,7 @@
     "src/host/log.ts",
     "src/host/main.ts",
     "src/host/terminology.ts",
+    "src/host/tls.ts",
     "src/host/typed.ts",
     "src/host/wiring.ts",
     "src/jobs/limits.ts",
@@ -110,14 +115,18 @@
     "src/persist/feed.ts",
     "src/persist/pool.ts",
     "src/persist/retry.ts",
+    "src/protocol/bridge.ts",
     "src/protocol/cursor.ts",
     "src/protocol/http.ts",
+    "src/protocol/instructions.ts",
     "src/protocol/negotiate.ts",
     "src/protocol/prompts.ts",
     "src/protocol/resources.ts",
     "src/protocol/revision.ts",
+    "src/protocol/sampling.ts",
     "src/protocol/server.ts",
     "src/protocol/session.ts",
+    "src/protocol/version.ts",
     "src/replace/cutover.ts",
     "src/replace/diff.ts",
     "src/replace/fake.ts",
@@ -171,7 +180,7 @@
     "src/versions/source.ts",
     "src/versions/version.ts"
   ],
-  "tests": 160,
+  "tests": 171,
   "tested": [
     "src/agent/audit.ts",
     "src/agent/chunk.ts",
@@ -179,6 +188,9 @@
     "src/agent/elements.ts",
     "src/agent/limit.ts",
     "src/agent/params.ts",
+    "src/agent/redact.ts",
+    "src/agent/subject.ts",
+    "src/agent/terminology.ts",
     "src/agent/tools.ts",
     "src/agent/write.ts",
     "src/auth/audit.ts",
@@ -234,6 +246,7 @@
     "src/host/log.ts",
     "src/host/main.ts",
     "src/host/terminology.ts",
+    "src/host/tls.ts",
     "src/host/typed.ts",
     "src/host/wiring.ts",
     "src/jobs/limits.ts",
@@ -266,6 +279,7 @@
     "src/persist/feed.ts",
     "src/persist/pool.ts",
     "src/persist/retry.ts",
+    "src/protocol/bridge.ts",
     "src/protocol/cursor.ts",
     "src/protocol/http.ts",
     "src/protocol/negotiate.ts",
@@ -274,6 +288,7 @@
     "src/protocol/revision.ts",
     "src/protocol/server.ts",
     "src/protocol/session.ts",
+    "src/protocol/version.ts",
     "src/replace/cutover.ts",
     "src/replace/diff.ts",
     "src/replace/gate.ts",
@@ -322,6 +337,7 @@
     "src/versions/version.ts"
   ],
   "untested": [
+    "src/agent/rules.ts",
     "src/auth/algs.ts",
     "src/auth/index.ts",
     "src/auth/mint.ts",
@@ -339,6 +355,8 @@
     "src/operations/records.ts",
     "src/params/model.ts",
     "src/params/status.ts",
+    "src/protocol/instructions.ts",
+    "src/protocol/sampling.ts",
     "src/replace/fake.ts",
     "src/terminology/port.ts",
     "src/tools/cli.ts",
@@ -348,6 +366,11 @@
   ],
   "gaps": [
     {
+      "path": "src/agent/audit.ts",
+      "reason": "unnamed",
+      "name": "interactionOf"
+    },
+    {
       "path": "src/agent/elements.ts",
       "reason": "unnamed",
       "name": "missingIn"
@@ -356,6 +379,26 @@
       "path": "src/agent/params.ts",
       "reason": "unnamed",
       "name": "OperationName"
+    },
+    {
+      "path": "src/agent/rules.ts",
+      "reason": "unnamed",
+      "name": "READ_RULES"
+    },
+    {
+      "path": "src/agent/rules.ts",
+      "reason": "unnamed",
+      "name": "LOOKUP_RULES"
+    },
+    {
+      "path": "src/agent/rules.ts",
+      "reason": "unnamed",
+      "name": "WRITE_RULES"
+    },
+    {
+      "path": "src/agent/subject.ts",
+      "reason": "unnamed",
+      "name": "ANONYMOUS"
     },
     {
       "path": "src/auth/algs.ts",
@@ -498,7 +541,12 @@
     {
       "path": "src/emr/backend.ts",
       "reason": "unnamed",
-      "name": "requiredPositive"
+      "name": "MissingField"
+    },
+    {
+      "path": "src/emr/backend.ts",
+      "reason": "unnamed",
+      "name": "InvalidValue"
     },
     {
       "path": "src/emr/token.ts",
@@ -570,9 +618,29 @@
       "name": "PROBE_TYPE"
     },
     {
-      "path": "src/host/main.ts",
+      "path": "src/host/tls.ts",
       "reason": "unnamed",
-      "name": "Unserved"
+      "name": "TRANSPORT"
+    },
+    {
+      "path": "src/host/tls.ts",
+      "reason": "unnamed",
+      "name": "CERT_FILE"
+    },
+    {
+      "path": "src/host/tls.ts",
+      "reason": "unnamed",
+      "name": "KEY_FILE"
+    },
+    {
+      "path": "src/host/tls.ts",
+      "reason": "unnamed",
+      "name": "PASSPHRASE"
+    },
+    {
+      "path": "src/host/tls.ts",
+      "reason": "unnamed",
+      "name": "TlsError"
     },
     {
       "path": "src/host/wiring.ts",
@@ -694,9 +762,14 @@
       "name": "TransportError"
     },
     {
-      "path": "src/protocol/prompts.ts",
+      "path": "src/protocol/instructions.ts",
       "reason": "unnamed",
-      "name": "workflows"
+      "name": "INSTRUCTIONS"
+    },
+    {
+      "path": "src/protocol/sampling.ts",
+      "reason": "unnamed",
+      "name": "briefed"
     },
     {
       "path": "src/replace/diff.ts",
