@@ -19,6 +19,7 @@ export const SECURITY_HEADERS = {
 
 const LOOPBACK = "127.0.0.1"
 const LIMIT = 1_048_576
+const REPLAY = 256
 const PARSE = -32700
 const INVALID = -32600
 const INTERNAL = -32603
@@ -128,7 +129,7 @@ const streamOf = (event: string): string => {
 const seqOf = (event: string): number =>
   Number(event.slice(event.lastIndexOf("-") + 1))
 
-const read = (req: IncomingMessage): Promise<string | undefined> =>
+export const read = (req: IncomingMessage): Promise<string | undefined | null> =>
   new Promise((resolve) => {
     const parts: Array<Buffer> = []
     let size = 0
@@ -144,6 +145,8 @@ const read = (req: IncomingMessage): Promise<string | undefined> =>
     req.on("end", () =>
       resolve(over ? undefined : Buffer.concat(parts).toString("utf8"))
     )
+    req.on("error", () => resolve(null))
+    req.on("aborted", () => resolve(null))
   })
 
 const answered = async (
@@ -253,6 +256,7 @@ export const serve = (
       const id = `${target.key}-${target.seq}`
       const data = JSON.stringify(message)
       target.log.push({ id, data })
+      if (target.log.length > REPLAY) target.log.shift()
       res.write(frame(id, data))
       return true
     }
@@ -324,6 +328,7 @@ export const serve = (
       given: string | undefined
     ): Promise<void> => {
       const text = await read(req)
+      if (text === null) return
       if (text === undefined) {
         return fail(res, 413, INVALID, "body too large")
       }

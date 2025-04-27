@@ -98,6 +98,58 @@ describe("config", () => {
   })
 })
 
+describe("audit trail config", () => {
+  it("keeps the trail in memory and unsealed when nothing is set", () => {
+    const config = value(run({}))
+    expect(config.trail.path).toBe(":memory:")
+    expect(config.trail.key).toBe("")
+    expect(config.trail.retentionMs).toBe(0)
+  })
+
+  it("reads the place, the sealing key and the retention it is given", () => {
+    const config = value(run({
+      FHIR_TRAIL_PATH: "trail.duckdb",
+      FHIR_TRAIL_KEY: "k-1",
+      FHIR_TRAIL_RETENTION_MS: "86400000"
+    }))
+    expect(config.trail.path).toBe("trail.duckdb")
+    expect(config.trail.key).toBe("k-1")
+    expect(config.trail.retentionMs).toBe(86400000)
+  })
+
+  it("refuses a retention that is not a whole span", () => {
+    const error = failure(run({ FHIR_TRAIL_RETENTION_MS: "-1" }))
+    expect(error.problems[0]).toContain("FHIR_TRAIL_RETENTION_MS")
+  })
+
+  it("requires a sealing key once the trail is durable", () => {
+    const error = failure(run({ FHIR_TRAIL_PATH: "trail.duckdb" }))
+    expect(error.problems[0]).toContain("FHIR_TRAIL_KEY")
+  })
+
+  it("does not require a sealing key for a trail held in memory", () => {
+    expect(value(run({ FHIR_TRAIL_PATH: ":memory:" })).trail.key).toBe("")
+  })
+
+  it("opens a sealed key with the key from the environment", () => {
+    const config = value(run({
+      FHIR_TRAIL_PATH: "trail.duckdb",
+      FHIR_TRAIL_KEY: seal("k-1", "pass"),
+      FHIR_SECRET_KEY: "pass"
+    }))
+    expect(config.trail.key).toBe("k-1")
+  })
+
+  it("names the key when a sealed value will not open", () => {
+    const error = failure(run({
+      FHIR_TRAIL_PATH: "trail.duckdb",
+      FHIR_TRAIL_KEY: seal("k-1", "pass"),
+      FHIR_SECRET_KEY: "other"
+    }))
+    expect(error.problems[0]).toContain("FHIR_TRAIL_KEY")
+  })
+})
+
 describe("emr backend config", () => {
   const smart: Record<string, string> = {
     FHIR_EMR_BACKEND: "clinic-a",

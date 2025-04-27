@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
-import { Effect, Layer } from "effect"
+import { Effect, Exit, Layer } from "effect"
+import { Server } from "@modelcontextprotocol/sdk/server/index.js"
+import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js"
 import type { Config } from "../config/config.js"
 import { FhirEngine } from "../core/engine.js"
 import type { Engine } from "../core/engine.js"
@@ -18,7 +20,8 @@ const config: Config = {
   allowWrite: false,
   scopes: [],
   terminologyDir: undefined,
-  logLevel: "info"
+  logLevel: "info",
+  trail: { path: ":memory:", key: "", retentionMs: 0 }
 }
 
 const engine: Layer.Layer<FhirEngine> = Layer.succeed(FhirEngine, {
@@ -158,5 +161,67 @@ describe("the bridge from the hosted transport to the server", () => {
     expect(frames.join("")).toContain("notifications/message")
     await read?.cancel()
     await held.close()
+  })
+})
+
+describe("the bridge across sessions", () => {
+  const slow = () => {
+    const server = new Server(
+      { name: "probe", version: "0" },
+      { capabilities: { tools: {}, logging: {} } }
+    )
+    server.setRequestHandler(CallToolRequestSchema, async (_request, extra) => {
+      await new Promise((done) => setTimeout(done, 50))
+      await extra.sendNotification({
+        method: "notifications/message",
+        params: { level: "info", data: "for the caller" }
+      })
+      return { content: [{ type: "text", text: "called" }] }
+    })
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [] }))
+    return server
+  }
+
+  it("answers two sessions that use the same request id", async () => {
+    const bridge = await Effect.runPromise(bridged(slow()))
+    const first = Effect.runPromiseExit(
+      bridge
+        .handler({ session: "A", id: 1, method: "tools/call", params: { name: "x" } })
+        .pipe(Effect.timeout("1 second"))
+    )
+    await new Promise((done) => setTimeout(done, 10))
+    const second = await Effect.runPromiseExit(
+      bridge.handler({ session: "B", id: 1, method: "tools/list", params: {} })
+    )
+    const answered = await first
+    expect(Exit.isSuccess(second) && second.value).toEqual({ tools: [] })
+    expect(Exit.isSuccess(answered) && answered.value).toEqual({
+      content: [{ type: "text", text: "called" }]
+    })
+  })
+
+  it("hands a notification only to the session whose request raised it", async () => {
+    const bridge = await Effect.runPromise(bridged(slow()))
+    const pushed: Array<string> = []
+    const endpoint: Endpoint = {
+      host: "127.0.0.1",
+      port: 0,
+      path: "/mcp",
+      push: (session) =>
+        Effect.sync(() => {
+          pushed.push(session)
+          return true
+        }),
+      end: () => Effect.succeed(true),
+      close: Effect.void
+    }
+    bridge.attach(endpoint)
+    const first = Effect.runPromise(
+      bridge.handler({ session: "A", id: 7, method: "tools/call", params: { name: "x" } })
+    )
+    await new Promise((done) => setTimeout(done, 10))
+    await Effect.runPromise(bridge.handler({ session: "B", id: 8, method: "tools/list", params: {} }))
+    await first
+    expect(pushed).toEqual(["A"])
   })
 })

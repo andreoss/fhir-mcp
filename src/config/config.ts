@@ -45,7 +45,16 @@ const Fields = Schema.Struct({
   FHIR_TERMINOLOGY_DIR: Schema.optional(Schema.String),
   FHIR_LOG_LEVEL: Schema.optionalWith(oneOf("debug", "info", "warn", "error"), {
     default: () => "info" as const
-  })
+  }),
+  FHIR_TRAIL_PATH: Schema.optionalWith(Schema.String, { default: () => ":memory:" }),
+  FHIR_TRAIL_KEY: Schema.optional(Schema.String),
+  FHIR_TRAIL_RETENTION_MS: Schema.optionalWith(
+    Schema.NumberFromString.pipe(Schema.int(), Schema.nonNegative()).annotations({
+      message: (issue) =>
+        `expected a non-negative whole number of milliseconds, got ${JSON.stringify(issue.actual)}`
+    }),
+    { default: () => 0 }
+  )
 })
 
 export type Transport = typeof Fields.Type["FHIR_TRANSPORT"]
@@ -84,6 +93,7 @@ export interface Config {
   readonly scopes: ReadonlyArray<string>
   readonly terminologyDir: string | undefined
   readonly logLevel: LogLevel
+  readonly trail: { readonly path: string; readonly key: string; readonly retentionMs: number }
   readonly emr?: BackendConfig
 }
 
@@ -112,6 +122,23 @@ const describe = (error: ParseResult.ParseError): ReadonlyArray<string> => {
   return [...byKey].map(([key, messages]) => `${key}: ${[...messages].join("; ")}`)
 }
 
+const trailKeyOf = (
+  raw: string | undefined,
+  passphrase: string | undefined
+): string | undefined => {
+  if (raw === undefined) return undefined
+  const trimmed = raw.trim()
+  return trimmed.length === 0 ? undefined : open(trimmed, passphrase)
+}
+
+const trailProblems = (
+  decoded: typeof Fields.Type,
+  key: string | undefined
+): ReadonlyArray<string> =>
+  decoded.FHIR_TRAIL_PATH === ":memory:" || key !== undefined
+    ? []
+    : ["FHIR_TRAIL_KEY: a durable audit trail needs a sealing key"]
+
 const crossFieldProblems = (decoded: typeof Fields.Type): ReadonlyArray<string> => {
   if (decoded.FHIR_TRANSPORT !== "http") return []
   if (decoded.FHIR_HTTP_ORIGINS.length > 0) return []
@@ -121,7 +148,7 @@ const crossFieldProblems = (decoded: typeof Fields.Type): ReadonlyArray<string> 
   return [`FHIR_HTTP_ORIGINS: ${reason}`]
 }
 
-const shape = (decoded: typeof Fields.Type): Config => ({
+const shape = (decoded: typeof Fields.Type, trailKey: string): Config => ({
   transport: decoded.FHIR_TRANSPORT,
   http: {
     host: decoded.FHIR_HTTP_HOST,
@@ -132,7 +159,12 @@ const shape = (decoded: typeof Fields.Type): Config => ({
   allowWrite: decoded.FHIR_ALLOW_WRITE === "true",
   scopes: decoded.FHIR_SCOPES,
   terminologyDir: decoded.FHIR_TERMINOLOGY_DIR,
-  logLevel: decoded.FHIR_LOG_LEVEL
+  logLevel: decoded.FHIR_LOG_LEVEL,
+  trail: {
+    path: decoded.FHIR_TRAIL_PATH,
+    key: trailKey ?? "",
+    retentionMs: decoded.FHIR_TRAIL_RETENTION_MS
+  }
 })
 
 const FIELD_ENV: Readonly<Record<string, string>> = {
@@ -230,10 +262,19 @@ export const load = (
       Effect.mapError((error) => new ConfigError({ problems: describe(error) }))
     )
     const problems: Array<string> = [...crossFieldProblems(decoded)]
+    let trailKey: string | undefined
+    try {
+      trailKey = trailKeyOf(env["FHIR_TRAIL_KEY"], env[SECRET_KEY_ENV])
+    } catch (error) {
+      problems.push(
+        `FHIR_TRAIL_KEY: ${error instanceof Error ? error.message : String(error)}`
+      )
+    }
+    problems.push(...trailProblems(decoded, trailKey))
     const emr = readEmr(env, problems)
     if (problems.length > 0) {
       return yield* Effect.fail(new ConfigError({ problems }))
     }
-    const config = shape(decoded)
+    const config = shape(decoded, trailKey ?? "")
     return emr === undefined ? config : { ...config, emr }
   })

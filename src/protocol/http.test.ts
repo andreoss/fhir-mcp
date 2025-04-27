@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest"
+import { EventEmitter } from "node:events"
+import type { IncomingMessage } from "node:http"
 import { Effect } from "effect"
 import type { Config } from "../config/config.js"
-import { ENDPOINT, SECURITY_HEADERS, serve } from "./http.js"
+import { ENDPOINT, SECURITY_HEADERS, read, serve } from "./http.js"
 import type { Endpoint, Handler, Incoming } from "./http.js"
 
 const ORIGIN = "https://client.example"
@@ -16,7 +18,8 @@ const config = (
   allowWrite: false,
   scopes: [],
   terminologyDir: undefined,
-  logLevel: "info"
+  logLevel: "info",
+  trail: { path: ":memory:", key: "", retentionMs: 0 }
 })
 
 const seen: Array<Incoming> = []
@@ -450,6 +453,34 @@ describe("streamable http transport", () => {
     again.stop()
   })
 
+  it("keeps at most the latest 256 events for a replay", async () => {
+    const { url, endpoint } = await start()
+    const session = await init(url)
+    const stream = await listen(url, { "mcp-session-id": session })
+    await settle()
+    for (let at = 1; at <= 1000; at += 1) {
+      await Effect.runPromise(endpoint.push(session, { seq: at }))
+    }
+    const first = await stream.next()
+    stream.stop()
+    await settle()
+    const again = await listen(url, {
+      "mcp-session-id": session,
+      "last-event-id": `${first.id.slice(0, first.id.lastIndexOf("-"))}-0`
+    })
+    await settle()
+    await Effect.runPromise(endpoint.push(session, { seq: "marker" }))
+    const replayed: Array<unknown> = []
+    for (;;) {
+      const event = await again.next()
+      if (event.data["seq"] === "marker") break
+      replayed.push(event.data["seq"])
+    }
+    expect(replayed.length).toBeLessThanOrEqual(256)
+    expect(replayed[replayed.length - 1]).toBe(1000)
+    again.stop()
+  })
+
   it("opens a fresh stream when the last event id is unknown", async () => {
     const { url, endpoint } = await start()
     const session = await init(url)
@@ -677,9 +708,37 @@ describe("streamable http transport", () => {
       allowWrite: false,
       scopes: [],
       terminologyDir: undefined,
-      logLevel: "info"
+      logLevel: "info",
+      trail: { path: ":memory:", key: "", retentionMs: 0 }
     }
     const exit = await Effect.runPromiseExit(serve(taken, handler))
     expect(exit._tag).toBe("Failure")
+  })
+})
+
+describe("reading a posted body", () => {
+  const request = () => new EventEmitter() as unknown as IncomingMessage
+
+  it("settles when the client aborts mid-body", async () => {
+    const req = request()
+    const body = read(req)
+    req.emit("data", Buffer.from("{\"jsonrpc\""))
+    req.emit("aborted")
+    expect(await body).toBeNull()
+  })
+
+  it("settles when the body stream fails", async () => {
+    const req = request()
+    const body = read(req)
+    req.emit("error", new Error("reset"))
+    expect(await body).toBeNull()
+  })
+
+  it("reads a body that arrives whole", async () => {
+    const req = request()
+    const body = read(req)
+    req.emit("data", Buffer.from("{}"))
+    req.emit("end")
+    expect(await body).toBe("{}")
   })
 })

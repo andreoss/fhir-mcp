@@ -5,6 +5,8 @@ import type { DuckDBConnection } from "@duckdb/node-api"
 import type { Config } from "../config/config.js"
 import { Rules, Versions, defaults } from "../core/interactions.js"
 import { FhirEngine } from "../core/engine.js"
+import { asJournal } from "../trail/ledger.js"
+import { open } from "../trail/store.js"
 import { Grant, Journal } from "../agent/write.js"
 import { Unavailable } from "../core/outcome.js"
 import type { Failure } from "../core/outcome.js"
@@ -54,12 +56,24 @@ export const journalToErrors: Layer.Layer<Journal> = Layer.succeed(Journal, {
     })
 })
 
+export const trailed = (config: Config): Layer.Layer<Journal, Failure> =>
+  Layer.scoped(
+    Journal,
+    Effect.gen(function* () {
+      const trail = yield* open(config.trail.path)
+      if (config.trail.retentionMs > 0) {
+        yield* trail.purge(config.trail.key, config.trail.retentionMs)
+      }
+      return asJournal(trail)
+    })
+  )
+
 export const wiring = (config: Config): Layer.Layer<Wiring, Failure> =>
   Layer.mergeAll(
     served(config),
     Layer.succeed(Rules, defaults),
     grantOf(config, randomUUID()),
-    journalToErrors,
+    trailed(config),
     supplied(config.terminologyDir),
     observed(config.logLevel)
   )
