@@ -112,6 +112,15 @@ const rude = `${HEAD}    answer(asked.id, { error: ${REFUSAL} })
 
 const mute = "process.stdin.resume()\n"
 
+const hearing = `${HEAD}    if (asked.method === "initialize")
+      answer(asked.id, {
+        result: { ...${GREETING}, heard: process.env["FHIR_TERMINOLOGY_DIR"] ?? "none" }
+      })
+    else answer(asked.id, { result: {} })
+  }
+})
+`
+
 const stand = async (body: string): Promise<{ entry: string; store: string }> => {
   const dir = await mkdtemp(join(tmpdir(), "fhir-suite-stand-"))
   const entry = join(dir, "stand.mjs")
@@ -138,6 +147,22 @@ describe("harness sessions", () => {
     await expect(open({ entry, store })).rejects.toThrow("no thank you")
     await rm(dirname(entry), { recursive: true, force: true })
   })
+
+  it("hands a server the settings a caller names beside its own", async () => {
+    const { entry, store } = await stand(hearing)
+    const session = await open({ entry, store, env: { FHIR_TERMINOLOGY_DIR: "/terms" } })
+    expect(session.greeting["heard"]).toBe("/terms")
+    await session.close()
+    await rm(dirname(entry), { recursive: true, force: true })
+  }, 30000)
+
+  it("names none of those settings when a caller names none", async () => {
+    const { entry, store } = await stand(hearing)
+    const session = await open({ entry, store })
+    expect(session.greeting["heard"]).toBe("none")
+    await session.close()
+    await rm(dirname(entry), { recursive: true, force: true })
+  }, 30000)
 
   it("bounds the wait for an answer that never comes", async () => {
     const { entry, store } = await stand(mute)

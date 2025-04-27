@@ -143,3 +143,40 @@ describe("a statement that names an interaction no tool provides", () => {
     expect(verdicts.every((one) => !one.met)).toBe(true)
   })
 })
+
+describe("a tool no interaction of the statement covers", () => {
+  const offered = surface(true, true).map((tool) => tool.name)
+
+  const derived = () => {
+    if (registry === undefined) throw new Error("no registry")
+    return checksOf(statement(build, registry, surface(true, true)), offered)
+  }
+
+  it("names a check of its own for the tool", () => {
+    expect(derived().map((check) => check.id)).toContain("tool:lookup")
+  })
+
+  it("names no second check for a tool an interaction already covers", () => {
+    const named = derived().map((check) => check.id)
+    expect(named).toContain("system:capabilities")
+    expect(named).not.toContain("tool:capabilities")
+    expect(named).not.toContain("tool:read")
+  })
+
+  it("leaves the tool out when the surface does not serve it", () => {
+    if (registry === undefined) throw new Error("no registry")
+    const named = checksOf(
+      statement(build, registry, surface(true)),
+      surface(true).map((tool) => tool.name)
+    ).map((check) => check.id)
+    expect(named).not.toContain("tool:lookup")
+  })
+
+  it("meets the check only once the server lists the tool", () => {
+    expect(verify(derived(), seen).filter((one) => !one.met).map((one) => one.id)).toEqual([
+      "tool:lookup"
+    ])
+    const listed = { ...seen, tools: [...seen.tools, "lookup"] }
+    expect(verify(derived(), listed).filter((one) => !one.met)).toEqual([])
+  })
+})

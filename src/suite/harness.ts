@@ -11,6 +11,7 @@ export interface Spawned {
   readonly store?: string
   readonly write?: boolean
   readonly budget?: number
+  readonly env?: Readonly<Record<string, string>>
 }
 
 export interface Content {
@@ -119,7 +120,7 @@ export const open = async (options: Spawned = {}): Promise<Session> => {
     : undefined
   const store = options.store ?? join(dir as string, "state.duckdb")
   const child = spawn(process.execPath, [entry], {
-    env: envOf(store, options.write === true, process.env),
+    env: { ...envOf(store, options.write === true, process.env), ...(options.env ?? {}) },
     stdio: ["pipe", "pipe", "pipe"]
   })
   const waiting = new Map<number, (answer: Answer) => void>()

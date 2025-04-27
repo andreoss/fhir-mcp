@@ -21,6 +21,10 @@ export const defaultEntry = (
   env: Record<string, string | undefined> = process.env
 ): string => env["FHIR_SUITE_ENTRY"] ?? join(ROOT, "dist", "host", "cli.js")
 
+export const termsEntry = (
+  env: Record<string, string | undefined> = process.env
+): string => env["FHIR_SUITE_TERMS_ENTRY"] ?? join(ROOT, "dist", "suite", "cli.js")
+
 const there = (path: string): Promise<boolean> =>
   stat(path).then(() => true, () => false)
 
