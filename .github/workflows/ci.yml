@@ -1,0 +1,108 @@
+name: verify
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  COVERAGE_GATE: "85"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      - name: static analysis
+        run: npm run typecheck
+
+      - name: dependency advisories
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: test with coverage
+        run: npm run coverage:ci
+
+      - name: coverage gate
+        run: |
+          node --input-type=module -e "
+          import { readFileSync } from 'node:fs'
+          const gate = Number(process.env.COVERAGE_GATE)
+          const total = JSON.parse(readFileSync('coverage/coverage-summary.json', 'utf8')).total
+          const metrics = ['lines', 'statements', 'functions', 'branches']
+          const measured = metrics.map((name) => [name, total[name].pct])
+          for (const [name, pct] of measured) console.log(name + ': ' + pct + '%')
+          const low = measured.filter(([, pct]) => pct < gate)
+          if (low.length > 0) {
+            console.error('coverage below ' + gate + '%: ' + low.map(([name, pct]) => name + ' ' + pct).join(', '))
+            process.exit(1)
+          }
+          "
+
+      - name: build
+        run: npm run build
+
+      - name: package
+        run: |
+          mkdir -p artifact
+          tar -czf artifact/build.tar.gz dist package.json package-lock.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ github.sha }}
+          path: artifact/build.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-${{ github.sha }}
+          path: coverage
+          if-no-files-found: warn
+          retention-days: 14
+
+  image:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: fhir-mcp:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: export image
+        run: |
+          mkdir -p artifact
+          docker save fhir-mcp:${{ github.sha }} | gzip > artifact/image.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ github.sha }}
+          path: artifact/image.tar.gz
+          if-no-files-found: error
+          retention-days: 14

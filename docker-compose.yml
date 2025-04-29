@@ -1,0 +1,77 @@
+name: fhir-mcp
+
+x-health: &health
+  test: ["CMD", "node", "dist/tools/cli.js", "health"]
+  interval: ${HEALTH_INTERVAL:-30s}
+  timeout: ${HEALTH_TIMEOUT:-5s}
+  retries: ${HEALTH_RETRIES:-3}
+  start_period: ${HEALTH_START_PERIOD:-10s}
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        RUNTIME_IMAGE: ${RUNTIME_IMAGE:-node:22-slim}
+    image: ${IMAGE_REF:-fhir-mcp:local}
+    init: true
+    stdin_open: true
+    read_only: true
+    user: node
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      FHIR_TRANSPORT: ${FHIR_TRANSPORT:-stdio}
+      FHIR_STORE_PATH: ${FHIR_STORE_PATH:-/srv/state/state.duckdb}
+      FHIR_ALLOW_WRITE: ${FHIR_ALLOW_WRITE:-false}
+      FHIR_LOG_LEVEL: ${FHIR_LOG_LEVEL:-info}
+    volumes:
+      - state:/srv/state
+    tmpfs:
+      - /tmp
+    healthcheck: *health
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: ${RESTART_POLICY:-unless-stopped}
+    deploy:
+      replicas: ${REPLICAS:-1}
+      restart_policy:
+        condition: ${DEPLOY_RESTART_CONDITION:-on-failure}
+        delay: ${DEPLOY_RESTART_DELAY:-5s}
+        max_attempts: ${DEPLOY_RESTART_ATTEMPTS:-3}
+      update_config:
+        order: ${DEPLOY_UPDATE_ORDER:-start-first}
+        parallelism: ${DEPLOY_UPDATE_PARALLELISM:-1}
+        failure_action: ${DEPLOY_UPDATE_FAILURE_ACTION:-rollback}
+      rollback_config:
+        order: ${DEPLOY_ROLLBACK_ORDER:-stop-first}
+        parallelism: ${DEPLOY_ROLLBACK_PARALLELISM:-1}
+      resources:
+        limits:
+          cpus: ${CPU_LIMIT:-1.0}
+          memory: ${MEMORY_LIMIT:-512M}
+        reservations:
+          cpus: ${CPU_RESERVATION:-0.25}
+          memory: ${MEMORY_RESERVATION:-256M}
+
+  migrate:
+    image: ${IMAGE_REF:-fhir-mcp:local}
+    profiles: ["tools"]
+    user: node
+    read_only: true
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      FHIR_STORE_PATH: ${FHIR_STORE_PATH:-/srv/state/state.duckdb}
+    volumes:
+      - state:/srv/state
+    entrypoint: ["node", "dist/tools/cli.js"]
+    command: ["migrate", "latest"]
+
+volumes:
+  state:
