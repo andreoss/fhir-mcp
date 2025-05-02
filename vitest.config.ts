@@ -4,6 +4,11 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
     environment: "node",
+    testTimeout: 30000,
+    hookTimeout: 30000,
+    pool: "forks",
+    maxWorkers: 2,
+    minWorkers: 1,
     coverage: {
       provider: "v8",
       include: ["src/**/*.ts"],
