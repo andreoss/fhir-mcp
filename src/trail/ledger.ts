@@ -19,3 +19,8 @@ export const asLine = (entry: Entry): Line => ({
 export const asJournal = (trail: Trail): Ledger => ({
   note: (entry: Entry) => Effect.ignore(trail.append(asLine(entry)))
 })
+
+export const beside = (ledgers: ReadonlyArray<Ledger>): Ledger => ({
+  note: (entry: Entry) =>
+    Effect.forEach(ledgers, (one) => one.note(entry), { discard: true })
+})

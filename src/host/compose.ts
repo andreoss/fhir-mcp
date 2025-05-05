@@ -5,9 +5,10 @@ import type { DuckDBConnection } from "@duckdb/node-api"
 import type { Config } from "../config/config.js"
 import { Rules, Versions, defaults } from "../core/interactions.js"
 import { FhirEngine } from "../core/engine.js"
-import { asJournal } from "../trail/ledger.js"
+import { asJournal, beside } from "../trail/ledger.js"
 import { open } from "../trail/store.js"
 import { Grant, Journal } from "../agent/write.js"
+import type { Ledger } from "../agent/audit.js"
 import { Unavailable } from "../core/outcome.js"
 import type { Failure } from "../core/outcome.js"
 import type { Metrics } from "../obs/metrics.js"
@@ -49,12 +50,14 @@ export const served = (config: Config): Layer.Layer<FhirEngine | Versions, Failu
 export const grantOf = (config: Config, correlation: string): Layer.Layer<Grant> =>
   Layer.succeed(Grant, { write: config.allowWrite, correlation })
 
-export const journalToErrors: Layer.Layer<Journal> = Layer.succeed(Journal, {
+export const toErrors: Ledger = {
   note: (entry) =>
     Effect.sync(() => {
       process.stderr.write(`${JSON.stringify(entry)}\n`)
     })
-})
+}
+
+export const journalToErrors: Layer.Layer<Journal> = Layer.succeed(Journal, toErrors)
 
 export const trailed = (config: Config): Layer.Layer<Journal, Failure> =>
   Layer.scoped(
@@ -64,7 +67,7 @@ export const trailed = (config: Config): Layer.Layer<Journal, Failure> =>
       if (config.trail.retentionMs > 0) {
         yield* trail.purge(config.trail.key, config.trail.retentionMs)
       }
-      return asJournal(trail)
+      return beside([toErrors, asJournal(trail)])
     })
   )
 
