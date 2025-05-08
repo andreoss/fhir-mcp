@@ -5,6 +5,7 @@ import type { DuckDBConnection } from "@duckdb/node-api"
 import type { Config } from "../config/config.js"
 import { Rules, Versions, defaults } from "../core/interactions.js"
 import { FhirEngine } from "../core/engine.js"
+import { Jobs } from "../jobs/service.js"
 import { asJournal, beside } from "../trail/ledger.js"
 import { open } from "../trail/store.js"
 import { Grant, Journal } from "../agent/write.js"
@@ -23,6 +24,7 @@ export type Wiring =
   | Rules
   | Grant
   | Journal
+  | Jobs
   | TerminologyPort
   | Metrics
 
@@ -38,12 +40,17 @@ const connect = (path: string): Effect.Effect<DuckDBConnection, Failure, never> 
     (connection) => Effect.sync(() => connection.closeSync())
   ) as unknown as Effect.Effect<DuckDBConnection, Failure, never>
 
-export const served = (config: Config): Layer.Layer<FhirEngine | Versions, Failure> =>
+export const served = (
+  config: Config
+): Layer.Layer<FhirEngine | Versions | Jobs, Failure> =>
   Layer.scopedContext(
     Effect.gen(function* () {
       const held = yield* startup(yield* connect(config.store.path))
       const engine = binding(held, restrictionOf(config))
-      return Context.make(FhirEngine, engine).pipe(Context.add(Versions, held.versions))
+      return Context.make(FhirEngine, engine).pipe(
+        Context.add(Versions, held.versions),
+        Context.add(Jobs, held.jobs)
+      )
     })
   )
 
