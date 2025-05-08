@@ -6,6 +6,8 @@ import { InitializeResultSchema } from "@modelcontextprotocol/sdk/types.js"
 import { FhirEngine } from "../core/engine.js"
 import type { Engine } from "../core/engine.js"
 import { NotFound } from "../core/outcome.js"
+import { DepotPort } from "../bulk/depot.js"
+import type { Depot, Fault, Sheet } from "../bulk/depot.js"
 import { open } from "../jobs/queue.js"
 import { Jobs, desk } from "../jobs/service.js"
 import { registry } from "../jobs/types.js"
@@ -29,12 +31,33 @@ const kinds = registry({
   }
 })
 
-const deskOn: Layer.Layer<Jobs> = Layer.scoped(
-  Jobs,
-  Effect.orDie(Effect.map(open(":memory:"), (queue) => desk(queue, kinds)))
+const ROW = '{"resourceType":"Patient","id":"p1"}'
+
+const depotOf = (): Depot => ({
+  put: () => Effect.void,
+  get: (path) => Effect.succeed(path.endsWith("Patient-0.ndjson") ? [ROW] : []),
+  list: (prefix) =>
+    Effect.succeed([{ path: `${prefix}Patient-0.ndjson`, rows: 1 } satisfies Sheet]),
+  note: () => Effect.void,
+  noted: () => Effect.succeed(undefined),
+  mark: () => Effect.void,
+  marks: () => Effect.succeed([]),
+  fault: () => Effect.void,
+  faults: () => Effect.succeed([] as ReadonlyArray<Fault>),
+  ids: () => Effect.succeed([]),
+  targets: () => Effect.succeed([]),
+  refresh: () => Effect.succeed(0)
+})
+
+const deskOn: Layer.Layer<Jobs | DepotPort> = Layer.merge(
+  Layer.succeed(DepotPort, depotOf()),
+  Layer.scoped(
+    Jobs,
+    Effect.orDie(Effect.map(open(":memory:"), (queue) => desk(queue, kinds)))
+  )
 )
 
-const dial = async (jobs?: Layer.Layer<Jobs>) => {
+const dial = async (jobs?: Layer.Layer<Jobs | DepotPort>) => {
   const [a, b] = InMemoryTransport.createLinkedPair()
   const server = build(engine, undefined, undefined, undefined, jobs)
   const client = new Client({ name: "probe", version: "0" })
@@ -118,6 +141,54 @@ describe("JOB-02 the job desk on the served surface", () => {
     const called = await client.callTool({
       name: "job-submit",
       arguments: { kind: "export", request: "{}" }
+    })
+    expect(called.isError).toBe(true)
+    expect(body(called)["resourceType"]).toBe("OperationOutcome")
+    await close()
+  })
+
+  it("reads what a job wrote over the wire", async () => {
+    const { client, close } = await dial(deskOn)
+    const id = String(
+      body(
+        await client.callTool({
+          name: "job-submit",
+          arguments: { kind: "reindex", request: "a,b" }
+        })
+      )["id"]
+    )
+    const reported = await client.callTool({ name: "job-output", arguments: { id } })
+    expect(reported.isError).toBe(false)
+    const sheet = `export/${id}/Patient-0.ndjson`
+    expect(body(reported)["output"]).toEqual([{ path: sheet, rows: 1 }])
+
+    const read = await client.callTool({
+      name: "job-output",
+      arguments: { id, path: sheet }
+    })
+    expect(read.isError).toBe(false)
+    expect(body(read)["sheet"]).toEqual({
+      path: sheet,
+      rows: 1,
+      returned: 1,
+      lines: [ROW]
+    })
+    await close()
+  })
+
+  it("refuses a path the job did not write over the wire", async () => {
+    const { client, close } = await dial(deskOn)
+    const id = String(
+      body(
+        await client.callTool({
+          name: "job-submit",
+          arguments: { kind: "reindex", request: "a,b" }
+        })
+      )["id"]
+    )
+    const called = await client.callTool({
+      name: "job-output",
+      arguments: { id, path: `export/${id}/Observation-0.ndjson` }
     })
     expect(called.isError).toBe(true)
     expect(body(called)["resourceType"]).toBe("OperationOutcome")

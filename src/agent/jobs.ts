@@ -1,11 +1,15 @@
 import { Effect, Option, Schema } from "effect"
-import { Rejected, toOutcome } from "../core/outcome.js"
+import { Forbidden, Rejected, toOutcome } from "../core/outcome.js"
 import type { Failure, OperationOutcome } from "../core/outcome.js"
 import { Jobs } from "../jobs/service.js"
 import { KINDS } from "../jobs/types.js"
+import type { Kind as JobKind } from "../jobs/types.js"
+import { report } from "../bulk/bulk.js"
+import { DepotPort } from "../bulk/depot.js"
 import { known } from "../obs/correlation.js"
 import { Journal, record, touched, verdict } from "./audit.js"
 import { reasons } from "./redact.js"
+import { Grant } from "./write.js"
 import { JOB_RULES } from "./rules.js"
 import type { ToolAnnotations, ToolResult, ToolSpec } from "./tools.js"
 
@@ -26,6 +30,24 @@ const JobId = Schema.String.pipe(
 const SubmitArgs = Schema.Struct({ kind: Kind, request: Request })
 
 const JobArgs = Schema.Struct({ id: JobId })
+
+const LINES = 100
+
+const MAX_LINES = 1000
+
+const Path = Schema.String.pipe(
+  Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/)
+).annotations({ message: () => "path: expected the path of a sheet" })
+
+const Limit = Schema.Number.pipe(Schema.int(), Schema.between(1, MAX_LINES)).annotations({
+  message: () => `limit: expected 1 to ${MAX_LINES} lines`
+})
+
+const OutputArgs = Schema.Struct({
+  id: JobId,
+  path: Schema.optional(Path),
+  limit: Schema.optional(Limit)
+})
 
 const readOnly: ToolAnnotations = {
   readOnlyHint: true,
@@ -102,6 +124,32 @@ export const jobTools: ReadonlyArray<ToolSpec> = [
       required: ["id"]
     },
     annotations: cancelling
+  },
+  {
+    name: "job-output",
+    description:
+      "job-output reports what one asynchronous job wrote, by the id " +
+      "job-submit answered: its state and progress, the sheets it produced " +
+      "with the rows each one holds, and the path of its failure file when " +
+      "it wrote one. Name a path to read the lines of that sheet. " + JOB_RULES,
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string", description: "Id of the job, as job-submit answered it." },
+        path: {
+          type: "string",
+          description:
+            "Path of one sheet the job wrote, as job-output listed it. " +
+            "Reads at most 100 lines unless a limit is given."
+        },
+        limit: {
+          type: "integer",
+          description: `Number of lines to read, from 1 to ${MAX_LINES}.`
+        }
+      },
+      required: ["id"]
+    },
+    annotations: readOnly
   }
 ]
 
@@ -118,11 +166,27 @@ const decode = <A, I>(schema: Schema.Schema<A, I>, args: unknown) =>
     Effect.mapError((error): Failure => new Rejected({ reason: reasons(error) }))
   )
 
-type Tool = (args: unknown) => Effect.Effect<unknown, Failure, Jobs>
+type Tool = (args: unknown) => Effect.Effect<unknown, Failure, Jobs | DepotPort>
+
+const WRITING: ReadonlySet<JobKind> = new Set(["import", "bulk-delete", "bulk-update", "reindex"])
+
+const writer = (action: string): Effect.Effect<void, Failure> =>
+  Effect.flatMap(Effect.serviceOption(Grant), (grant) =>
+    Option.isSome(grant) && grant.value.write
+      ? Effect.void
+      : Effect.fail(
+          new Forbidden({
+            action: Option.isSome(grant)
+              ? `${action}: the grant is read-only`
+              : `${action}: no grant was given`
+          })
+        )
+  )
 
 const submitTool: Tool = (args) =>
   Effect.gen(function* () {
     const asked = yield* decode(SubmitArgs, args)
+    if (WRITING.has(asked.kind)) yield* writer(`job-submit ${asked.kind}`)
     const desk = yield* Jobs
     return yield* desk.submit(asked.kind, asked.request)
   })
@@ -137,9 +201,36 @@ const statusTool: Tool = (args) =>
 const cancelTool: Tool = (args) =>
   Effect.gen(function* () {
     const asked = yield* decode(JobArgs, args)
+    yield* writer("job-cancel")
     const desk = yield* Jobs
     yield* desk.cancel(asked.id)
     return yield* desk.status(asked.id)
+  })
+
+const outputTool: Tool = (args) =>
+  Effect.gen(function* () {
+    const asked = yield* decode(OutputArgs, args)
+    const desk = yield* Jobs
+    const depot = yield* DepotPort
+    const told = yield* report(desk, depot, asked.id)
+    if (asked.path === undefined) return told
+    const sheet = told.output.find((one) => one.path === asked.path)
+    if (sheet === undefined && asked.path !== told.error) {
+      return yield* Effect.fail(
+        new Rejected({ reason: `${asked.path} is no sheet of job ${asked.id}` })
+      )
+    }
+    const lines = yield* depot.get(asked.path)
+    const bound = asked.limit ?? LINES
+    return {
+      ...told,
+      sheet: {
+        path: asked.path,
+        rows: sheet?.rows ?? lines.length,
+        returned: Math.min(bound, lines.length),
+        lines: lines.slice(0, bound)
+      }
+    }
   })
 
 const pick = (name: string): Tool | undefined =>
@@ -149,12 +240,14 @@ const pick = (name: string): Tool | undefined =>
       ? statusTool
       : name === "job-cancel"
         ? cancelTool
-        : undefined
+        : name === "job-output"
+          ? outputTool
+          : undefined
 
 export const callJob = (
   name: string,
   args: unknown
-): Effect.Effect<ToolResult, never, Jobs> =>
+): Effect.Effect<ToolResult, never, Jobs | DepotPort> =>
   Effect.gen(function* () {
     const journal = yield* Effect.serviceOption(Journal)
     const correlation = yield* known
