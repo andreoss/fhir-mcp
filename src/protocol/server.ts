@@ -25,6 +25,8 @@ import { call, tools } from "../agent/tools.js"
 import type { ToolResult, ToolSpec } from "../agent/tools.js"
 import { Grant, callWrite, writeTools } from "../agent/write.js"
 import type { Journal } from "../agent/write.js"
+import { callJob, jobTools } from "../agent/jobs.js"
+import { Jobs } from "../jobs/service.js"
 import { callTerminology, terminologyTools } from "../agent/terminology.js"
 import { statements } from "../conformance/capability.js"
 import { REGISTRIES, versions } from "../conformance/versions.js"
@@ -42,6 +44,8 @@ import { INSTRUCTIONS } from "./instructions.js"
 import { NAME, VERSION } from "./version.js"
 
 const writeNames = new Set(writeTools.map((tool) => tool.name))
+
+const jobNames = new Set(jobTools.map((tool) => tool.name))
 
 export const SERVED: ReadonlyArray<string> = [
   "tools",
@@ -67,12 +71,16 @@ export type Writes = Layer.Layer<Versions | Rules | Grant | Journal>
 
 export type Observed = Layer.Layer<Metrics>
 
+export type Desked = Layer.Layer<Jobs>
+
 export const surface = (
   writable: boolean,
-  withTerms = false
+  withTerms = false,
+  withJobs = false
 ): ReadonlyArray<ToolSpec> => [
   ...tools,
   ...(withTerms ? terminologyTools : []),
+  ...(withJobs ? jobTools : []),
   ...(writable ? writeTools : [])
 ]
 
@@ -113,12 +121,18 @@ export const build = (
   engine: Layer.Layer<FhirEngine>,
   writes?: Writes,
   observed: Observed = unmetered,
-  terms?: Layer.Layer<TerminologyPort>
+  terms?: Layer.Layer<TerminologyPort>,
+  jobs?: Desked
 ): Server => {
   const runtime = ManagedRuntime.make(Layer.merge(engine, observed))
   const writing = writes === undefined ? undefined : ManagedRuntime.make(writes)
   const terminology = terms === undefined ? undefined : ManagedRuntime.make(terms)
-  const offered = surface(writing !== undefined, terminology !== undefined)
+  const desk = jobs === undefined ? undefined : ManagedRuntime.make(jobs)
+  const offered = surface(
+    writing !== undefined,
+    terminology !== undefined,
+    desk !== undefined
+  )
   const offeredNames = new Set(offered.map((tool) => tool.name))
   const server = new Server(
     { name: NAME, version: VERSION },
@@ -205,9 +219,14 @@ export const build = (
       })
     }
     const lookup = terminology !== undefined && terminologyTools.some((tool) => tool.name === name)
+    const onDesk = desk !== undefined && jobNames.has(name)
     const answered = lookup
       ? await terminology.runPromise(callTerminology(name, args), { signal: extra.signal })
-      : writeNames.has(name) && writing !== undefined
+      : onDesk
+        ? await desk.runPromise(edge(callJob(name, args), correlation), {
+            signal: extra.signal
+          })
+        : writeNames.has(name) && writing !== undefined
       ? await writing.runPromise(
           Effect.flatMap(Grant, (held) =>
             Effect.provideService(callWrite(name, args), Grant, {
@@ -413,6 +432,7 @@ export const build = (
     await close()
     await runtime.dispose()
     if (writing !== undefined) await writing.dispose()
+    if (desk !== undefined) await desk.dispose()
   }
 
   return server
@@ -422,11 +442,12 @@ export const serveOverStdio = (
   engine: Layer.Layer<FhirEngine>,
   writes?: Writes,
   observed?: Observed,
-  terms?: Layer.Layer<TerminologyPort>
+  terms?: Layer.Layer<TerminologyPort>,
+  jobs?: Desked
 ): Effect.Effect<Server, Error> =>
   Effect.tryPromise({
     try: async () => {
-      const server = build(engine, writes, observed, terms)
+      const server = build(engine, writes, observed, terms, jobs)
       await server.connect(new StdioServerTransport())
       return server
     },
