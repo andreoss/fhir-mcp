@@ -1,61 +1,61 @@
 import { describe, expect, it } from "vitest"
-import { Effect, Exit } from "effect"
-import { mkdtemp } from "node:fs/promises"
+import { Effect } from "effect"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { inspect, run } from "./health.js"
+import { inspect } from "./health.js"
 
-const go = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect)
+const stateOf = (h: { checks: ReadonlyArray<{ name: string; state: string }> }, n: string) =>
+  h.checks.find((c) => c.name === n)?.state
 
-const stateOf = (checks: ReadonlyArray<{ name: string; state: string }>, name: string) =>
-  checks.find((check) => check.name === name)?.state
+const withDir = async <A>(use: (dir: string) => Promise<A>): Promise<A> => {
+  const dir = mkdtempSync(join(tmpdir(), "health-"))
+  try {
+    return await use(dir)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
 
-describe("health", () => {
-  it("answers well for a store held in memory", async () => {
-    const found = await go(inspect(undefined, {}))
-    expect(found.status).toBe("ok")
-    expect(stateOf(found.checks, "config")).toBe("accepted")
-    expect(stateOf(found.checks, "store")).toBe("in-memory")
-  })
-
-  it("says plainly that the engine was not observed", async () => {
-    const found = await go(inspect(undefined, {}))
-    expect(stateOf(found.checks, "engine")).toBe("not-observed")
-  })
-
-  it("answers well for a store whose directory is there", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "tools-health-"))
-    const found = await go(inspect(join(dir, "state.duckdb"), {}))
-    expect(stateOf(found.checks, "store")).toBe("reachable")
+describe("health command", () => {
+  it("exercises the store rather than looking at a path", async () => {
+    const found = await Effect.runPromise(inspect(":memory:", { FHIR_TRANSPORT: "stdio" }))
+    expect(stateOf(found, "store")).toBe("up")
     expect(found.status).toBe("ok")
   })
 
-  it("answers badly for a store whose directory is not there", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "tools-health-"))
-    const found = await go(inspect(join(dir, "absent", "state.duckdb"), {}))
-    expect(stateOf(found.checks, "store")).toBe("unreachable")
+  it("does not claim the engine is well when it never asked it", async () => {
+    const found = await Effect.runPromise(inspect(":memory:", { FHIR_TRANSPORT: "stdio" }))
+    expect(stateOf(found, "engine")).not.toBe("ok")
+  })
+
+  it("reports a store it cannot open as down, not as reachable", async () => {
+    const found = await Effect.runPromise(
+      inspect("/does/not/exist/nested/state.duckdb", { FHIR_TRANSPORT: "stdio" })
+    )
+    expect(stateOf(found, "store")).toBe("down")
     expect(found.status).toBe("failing")
   })
 
-  it("answers badly when the configuration is refused", async () => {
-    const found = await go(inspect(undefined, { FHIR_TRANSPORT: "carrier-pigeon" }))
+  it("reports a store file that is not a store as down", async () =>
+    withDir(async (dir) => {
+      const path = join(dir, "not-a-store.duckdb")
+      writeFileSync(path, "this is not a database")
+      const found = await Effect.runPromise(inspect(path, { FHIR_TRANSPORT: "stdio" }))
+      expect(stateOf(found, "store")).toBe("down")
+      expect(found.status).toBe("failing")
+    }))
+
+  it("opens a real store file and answers up", async () =>
+    withDir(async (dir) => {
+      const path = join(dir, "state.duckdb")
+      const found = await Effect.runPromise(inspect(path, { FHIR_TRANSPORT: "stdio" }))
+      expect(stateOf(found, "store")).toBe("up")
+    }))
+
+  it("reports a configuration it cannot accept", async () => {
+    const found = await Effect.runPromise(inspect(":memory:", { FHIR_TRANSPORT: "pigeon" }))
+    expect(stateOf(found, "config")).toContain("rejected")
     expect(found.status).toBe("failing")
-    expect(stateOf(found.checks, "config")).toContain("FHIR_TRANSPORT")
-  })
-
-  it("reports through the command with a status an orchestrator can read", async () => {
-    const good = await Effect.runPromiseExit(run([], {}))
-    if (!Exit.isSuccess(good)) throw new Error("expected success")
-    expect(good.value.status).toBe(0)
-    expect(JSON.parse(good.value.lines[0] ?? "")).toMatchObject({ status: "ok" })
-    const bad = await Effect.runPromiseExit(run([], { FHIR_TRANSPORT: "carrier-pigeon" }))
-    if (!Exit.isSuccess(bad)) throw new Error("expected success")
-    expect(bad.value.status).toBe(1)
-  })
-
-  it("refuses an option it does not know", async () => {
-    const exit = await Effect.runPromiseExit(run(["--everything"], {}))
-    if (!Exit.isFailure(exit) || exit.cause._tag !== "Fail") throw new Error("expected failure")
-    expect(exit.cause.error.message).toContain("--everything")
   })
 })

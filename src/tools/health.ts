@@ -1,9 +1,9 @@
 import { Effect, Schema } from "effect"
-import { dirname } from "node:path"
 import { load } from "../config/config.js"
+import { readiness, storeProbe } from "../host/health.js"
+import { open } from "../store/store.js"
 import { parse } from "./args.js"
 import type { ArgsError } from "./args.js"
-import { exists } from "./io.js"
 import { emit, storePath } from "./result.js"
 import type { Outcome } from "./result.js"
 
@@ -19,7 +19,14 @@ export interface Health {
 }
 
 const failing = (state: string): boolean =>
-  state.startsWith("rejected") || state === "unreachable"
+  state.startsWith("rejected") || state === "down" || state === "timeout"
+
+const exercised = (path: string): Effect.Effect<string> =>
+  Effect.scoped(
+    Effect.flatMap(open(path), (store) =>
+      Effect.map(readiness([storeProbe(store)]), (report) => report.checks[0]?.state ?? "down")
+    )
+  ).pipe(Effect.orElseSucceed(() => "down"))
 
 export const inspect = (
   given: string | undefined,
@@ -30,8 +37,7 @@ export const inspect = (
     const config =
       decoded._tag === "Right" ? "accepted" : `rejected: ${decoded.left.problems.join("; ")}`
     const path = storePath(given, env)
-    const reachable = yield* Effect.orElseSucceed(exists(dirname(path)), () => false)
-    const store = path === ":memory:" ? "in-memory" : reachable ? "reachable" : "unreachable"
+    const store = yield* exercised(path)
     const checks: ReadonlyArray<Check> = [
       { name: "config", state: config },
       { name: "store", state: store },
