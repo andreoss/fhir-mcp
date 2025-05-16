@@ -8,6 +8,7 @@ const config = (allowWrite: boolean): Config => ({
   transport: "stdio",
   http: { host: "127.0.0.1", port: 8080, origins: [] },
   store: { path: ":memory:" },
+  scopes: [],
   allowWrite,
   terminologyDir: undefined,
   logLevel: "info"

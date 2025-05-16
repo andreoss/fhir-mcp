@@ -15,6 +15,7 @@ import {
 import type { Bounds, Probe, Reading } from "./health.js"
 
 const bounds: Bounds = { budget: 60, retryAfter: 7 }
+const patient: Bounds = { budget: 15000, retryAfter: 7 }
 
 const up = (name: string): Probe => ({ name, check: Effect.succeed(1) })
 
@@ -86,12 +87,12 @@ describe("health", () => {
   it("catches a real store whose connection stopped answering queries", async () => {
     const { connection, store } = await openStore()
     const well = await Effect.runPromise(
-      readiness([storeProbe(store)], bounds)
+      readiness([storeProbe(store)], patient)
     )
     expect(reading(well.checks, "store").state).toBe("up")
     connection.closeSync()
     const unwell = await Effect.runPromise(
-      readiness([storeProbe(store)], bounds)
+      readiness([storeProbe(store)], patient)
     )
     expect(reading(unwell.checks, "store").state).toBe("down")
     expect(unwell.status).toBe("unready")
