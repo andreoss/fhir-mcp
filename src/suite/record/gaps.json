@@ -1,0 +1,648 @@
+{
+  "modules": [
+    "src/agent/audit.ts",
+    "src/agent/cursor.ts",
+    "src/agent/elements.ts",
+    "src/agent/tools.ts",
+    "src/agent/write.ts",
+    "src/auth/algs.ts",
+    "src/auth/audit.ts",
+    "src/auth/bearer.ts",
+    "src/auth/delegation.ts",
+    "src/auth/digest.ts",
+    "src/auth/discovery.ts",
+    "src/auth/failure.ts",
+    "src/auth/guard.ts",
+    "src/auth/index.ts",
+    "src/auth/introspect.ts",
+    "src/auth/jwk.ts",
+    "src/auth/mint.ts",
+    "src/auth/pkce.ts",
+    "src/auth/ports.ts",
+    "src/auth/registration.ts",
+    "src/auth/scope.ts",
+    "src/auth/session.ts",
+    "src/auth/verify.ts",
+    "src/bulk/bulk.ts",
+    "src/bulk/delete.ts",
+    "src/bulk/depot.ts",
+    "src/bulk/export.ts",
+    "src/bulk/import.ts",
+    "src/bulk/index.ts",
+    "src/bulk/reindex.ts",
+    "src/bulk/rules.ts",
+    "src/bulk/spec.ts",
+    "src/bulk/update.ts",
+    "src/bundle/bundle.ts",
+    "src/bundle/unit.ts",
+    "src/compartment/definition.ts",
+    "src/compartment/filter.ts",
+    "src/compartment/grant.ts",
+    "src/compartment/search.ts",
+    "src/config/config.ts",
+    "src/conformance/capability.ts",
+    "src/conformance/operations.ts",
+    "src/conformance/smart.ts",
+    "src/conformance/versions.ts",
+    "src/core/engine.ts",
+    "src/core/interactions.ts",
+    "src/core/outcome.ts",
+    "src/engine/cache.ts",
+    "src/engine/restriction.ts",
+    "src/engine/search.ts",
+    "src/format/convert.ts",
+    "src/format/defs.ts",
+    "src/format/narrative.ts",
+    "src/format/tree.ts",
+    "src/format/xml.ts",
+    "src/host/cli.ts",
+    "src/host/compose.ts",
+    "src/host/health.ts",
+    "src/host/main.ts",
+    "src/host/terminology.ts",
+    "src/jobs/limits.ts",
+    "src/jobs/queue.ts",
+    "src/jobs/service.ts",
+    "src/jobs/types.ts",
+    "src/jobs/watchdog.ts",
+    "src/jobs/worker.ts",
+    "src/model/resources.ts",
+    "src/model/shape.ts",
+    "src/model/validate.ts",
+    "src/obs/correlation.ts",
+    "src/obs/metrics.ts",
+    "src/obs/scrape.ts",
+    "src/obs/sink.ts",
+    "src/obs/telemetry.ts",
+    "src/operations/compartment.ts",
+    "src/operations/docref.ts",
+    "src/operations/duck.ts",
+    "src/operations/everything.ts",
+    "src/operations/grant.ts",
+    "src/operations/includes.ts",
+    "src/operations/index.ts",
+    "src/operations/member.ts",
+    "src/operations/page.ts",
+    "src/operations/profile.ts",
+    "src/operations/records.ts",
+    "src/params/cache.ts",
+    "src/params/gate.ts",
+    "src/params/model.ts",
+    "src/params/registry.ts",
+    "src/params/reindex.ts",
+    "src/params/service.ts",
+    "src/params/status.ts",
+    "src/persist/codec.ts",
+    "src/persist/document.ts",
+    "src/persist/feed.ts",
+    "src/persist/pool.ts",
+    "src/persist/retry.ts",
+    "src/protocol/http.ts",
+    "src/protocol/negotiate.ts",
+    "src/protocol/revision.ts",
+    "src/protocol/server.ts",
+    "src/replace/cutover.ts",
+    "src/replace/diff.ts",
+    "src/replace/fake.ts",
+    "src/replace/gate.ts",
+    "src/replace/incumbent.ts",
+    "src/replace/migrate.ts",
+    "src/replace/shadow.ts",
+    "src/replace/survey.ts",
+    "src/search/control.ts",
+    "src/search/parse.ts",
+    "src/search/registry.ts",
+    "src/search/tree.ts",
+    "src/search/value.ts",
+    "src/store/definitions.ts",
+    "src/store/query.ts",
+    "src/store/store.ts",
+    "src/store/versioned.ts",
+    "src/suite/build.ts",
+    "src/suite/checks.ts",
+    "src/suite/external.ts",
+    "src/suite/gaps.ts",
+    "src/suite/harness.ts",
+    "src/suite/record.ts",
+    "src/terminology/expand.ts",
+    "src/terminology/load.ts",
+    "src/terminology/port.ts",
+    "src/terminology/system.ts",
+    "src/terminology/terminology.ts",
+    "src/tools/args.ts",
+    "src/tools/bench.ts",
+    "src/tools/cli.ts",
+    "src/tools/data.ts",
+    "src/tools/db.ts",
+    "src/tools/dispatch.ts",
+    "src/tools/guard.ts",
+    "src/tools/health.ts",
+    "src/tools/io.ts",
+    "src/tools/migrate.ts",
+    "src/tools/result.ts",
+    "src/tools/scaffold.ts",
+    "src/trail/chain.ts",
+    "src/trail/convert.ts",
+    "src/trail/jobs.ts",
+    "src/trail/seal.ts",
+    "src/trail/store.ts",
+    "src/trail/templates.ts",
+    "src/versions/catalog.ts",
+    "src/versions/generate.ts",
+    "src/versions/source.ts",
+    "src/versions/version.ts"
+  ],
+  "tests": 136,
+  "tested": [
+    "src/agent/audit.ts",
+    "src/agent/cursor.ts",
+    "src/agent/elements.ts",
+    "src/agent/tools.ts",
+    "src/agent/write.ts",
+    "src/auth/audit.ts",
+    "src/auth/bearer.ts",
+    "src/auth/delegation.ts",
+    "src/auth/digest.ts",
+    "src/auth/discovery.ts",
+    "src/auth/failure.ts",
+    "src/auth/guard.ts",
+    "src/auth/introspect.ts",
+    "src/auth/jwk.ts",
+    "src/auth/pkce.ts",
+    "src/auth/ports.ts",
+    "src/auth/registration.ts",
+    "src/auth/scope.ts",
+    "src/auth/session.ts",
+    "src/auth/verify.ts",
+    "src/bulk/bulk.ts",
+    "src/bulk/delete.ts",
+    "src/bulk/depot.ts",
+    "src/bulk/export.ts",
+    "src/bulk/import.ts",
+    "src/bulk/reindex.ts",
+    "src/bulk/rules.ts",
+    "src/bulk/spec.ts",
+    "src/bulk/update.ts",
+    "src/bundle/bundle.ts",
+    "src/bundle/unit.ts",
+    "src/compartment/definition.ts",
+    "src/compartment/filter.ts",
+    "src/compartment/grant.ts",
+    "src/compartment/search.ts",
+    "src/config/config.ts",
+    "src/conformance/capability.ts",
+    "src/conformance/operations.ts",
+    "src/conformance/smart.ts",
+    "src/conformance/versions.ts",
+    "src/core/interactions.ts",
+    "src/core/outcome.ts",
+    "src/engine/cache.ts",
+    "src/engine/restriction.ts",
+    "src/engine/search.ts",
+    "src/format/tree.ts",
+    "src/format/xml.ts",
+    "src/host/compose.ts",
+    "src/host/health.ts",
+    "src/host/main.ts",
+    "src/host/terminology.ts",
+    "src/jobs/limits.ts",
+    "src/jobs/queue.ts",
+    "src/jobs/service.ts",
+    "src/jobs/watchdog.ts",
+    "src/jobs/worker.ts",
+    "src/model/resources.ts",
+    "src/model/shape.ts",
+    "src/model/validate.ts",
+    "src/obs/correlation.ts",
+    "src/obs/metrics.ts",
+    "src/obs/scrape.ts",
+    "src/obs/sink.ts",
+    "src/obs/telemetry.ts",
+    "src/operations/docref.ts",
+    "src/operations/everything.ts",
+    "src/operations/includes.ts",
+    "src/operations/member.ts",
+    "src/operations/page.ts",
+    "src/operations/profile.ts",
+    "src/params/cache.ts",
+    "src/params/gate.ts",
+    "src/params/registry.ts",
+    "src/params/reindex.ts",
+    "src/params/service.ts",
+    "src/persist/codec.ts",
+    "src/persist/document.ts",
+    "src/persist/feed.ts",
+    "src/persist/pool.ts",
+    "src/persist/retry.ts",
+    "src/protocol/http.ts",
+    "src/protocol/negotiate.ts",
+    "src/protocol/revision.ts",
+    "src/protocol/server.ts",
+    "src/replace/cutover.ts",
+    "src/replace/diff.ts",
+    "src/replace/gate.ts",
+    "src/replace/incumbent.ts",
+    "src/replace/migrate.ts",
+    "src/replace/shadow.ts",
+    "src/replace/survey.ts",
+    "src/search/control.ts",
+    "src/search/parse.ts",
+    "src/search/registry.ts",
+    "src/search/tree.ts",
+    "src/search/value.ts",
+    "src/store/definitions.ts",
+    "src/store/query.ts",
+    "src/store/store.ts",
+    "src/store/versioned.ts",
+    "src/suite/build.ts",
+    "src/suite/checks.ts",
+    "src/suite/external.ts",
+    "src/suite/gaps.ts",
+    "src/suite/harness.ts",
+    "src/suite/record.ts",
+    "src/terminology/expand.ts",
+    "src/terminology/load.ts",
+    "src/terminology/system.ts",
+    "src/terminology/terminology.ts",
+    "src/tools/args.ts",
+    "src/tools/bench.ts",
+    "src/tools/data.ts",
+    "src/tools/db.ts",
+    "src/tools/dispatch.ts",
+    "src/tools/guard.ts",
+    "src/tools/health.ts",
+    "src/tools/io.ts",
+    "src/tools/migrate.ts",
+    "src/tools/result.ts",
+    "src/tools/scaffold.ts",
+    "src/trail/chain.ts",
+    "src/trail/convert.ts",
+    "src/trail/jobs.ts",
+    "src/trail/store.ts",
+    "src/versions/catalog.ts",
+    "src/versions/generate.ts",
+    "src/versions/version.ts"
+  ],
+  "untested": [
+    "src/auth/algs.ts",
+    "src/auth/index.ts",
+    "src/auth/mint.ts",
+    "src/bulk/index.ts",
+    "src/core/engine.ts",
+    "src/format/convert.ts",
+    "src/format/defs.ts",
+    "src/format/narrative.ts",
+    "src/host/cli.ts",
+    "src/jobs/types.ts",
+    "src/operations/compartment.ts",
+    "src/operations/duck.ts",
+    "src/operations/grant.ts",
+    "src/operations/index.ts",
+    "src/operations/records.ts",
+    "src/params/model.ts",
+    "src/params/status.ts",
+    "src/replace/fake.ts",
+    "src/terminology/port.ts",
+    "src/tools/cli.ts",
+    "src/trail/seal.ts",
+    "src/trail/templates.ts",
+    "src/versions/source.ts"
+  ],
+  "gaps": [
+    {
+      "path": "src/auth/algs.ts",
+      "reason": "unnamed",
+      "name": "ALGS"
+    },
+    {
+      "path": "src/auth/algs.ts",
+      "reason": "unnamed",
+      "name": "SYMMETRIC"
+    },
+    {
+      "path": "src/auth/index.ts",
+      "reason": "unreached"
+    },
+    {
+      "path": "src/auth/pkce.ts",
+      "reason": "unnamed",
+      "name": "METHOD"
+    },
+    {
+      "path": "src/bulk/delete.ts",
+      "reason": "unnamed",
+      "name": "deleter"
+    },
+    {
+      "path": "src/bulk/depot.ts",
+      "reason": "unnamed",
+      "name": "STATEMENTS"
+    },
+    {
+      "path": "src/bulk/export.ts",
+      "reason": "unnamed",
+      "name": "exporter"
+    },
+    {
+      "path": "src/bulk/import.ts",
+      "reason": "unnamed",
+      "name": "importer"
+    },
+    {
+      "path": "src/bulk/index.ts",
+      "reason": "unreached"
+    },
+    {
+      "path": "src/bulk/reindex.ts",
+      "reason": "unnamed",
+      "name": "reindexer"
+    },
+    {
+      "path": "src/bulk/rules.ts",
+      "reason": "unnamed",
+      "name": "MASK"
+    },
+    {
+      "path": "src/bulk/rules.ts",
+      "reason": "unnamed",
+      "name": "ActDoc"
+    },
+    {
+      "path": "src/bulk/rules.ts",
+      "reason": "unnamed",
+      "name": "RuleDoc"
+    },
+    {
+      "path": "src/bulk/rules.ts",
+      "reason": "unnamed",
+      "name": "SealedDoc"
+    },
+    {
+      "path": "src/bulk/rules.ts",
+      "reason": "unnamed",
+      "name": "SetDoc"
+    },
+    {
+      "path": "src/bulk/spec.ts",
+      "reason": "unnamed",
+      "name": "FORMATS"
+    },
+    {
+      "path": "src/bulk/spec.ts",
+      "reason": "unnamed",
+      "name": "CutDoc"
+    },
+    {
+      "path": "src/bulk/spec.ts",
+      "reason": "unnamed",
+      "name": "RowsDoc"
+    },
+    {
+      "path": "src/bulk/spec.ts",
+      "reason": "unnamed",
+      "name": "DropDoc"
+    },
+    {
+      "path": "src/bulk/spec.ts",
+      "reason": "unnamed",
+      "name": "MendDoc"
+    },
+    {
+      "path": "src/bulk/spec.ts",
+      "reason": "unnamed",
+      "name": "ScanDoc"
+    },
+    {
+      "path": "src/bulk/update.ts",
+      "reason": "unnamed",
+      "name": "updater"
+    },
+    {
+      "path": "src/config/config.ts",
+      "reason": "unnamed",
+      "name": "ConfigError"
+    },
+    {
+      "path": "src/engine/cache.ts",
+      "reason": "unnamed",
+      "name": "CAPACITY"
+    },
+    {
+      "path": "src/format/convert.ts",
+      "reason": "unnamed",
+      "name": "toObject"
+    },
+    {
+      "path": "src/format/convert.ts",
+      "reason": "unnamed",
+      "name": "toTree"
+    },
+    {
+      "path": "src/format/defs.ts",
+      "reason": "unnamed",
+      "name": "EXTENSION"
+    },
+    {
+      "path": "src/format/defs.ts",
+      "reason": "unnamed",
+      "name": "BUNDLE"
+    },
+    {
+      "path": "src/format/defs.ts",
+      "reason": "unnamed",
+      "name": "OUTCOME"
+    },
+    {
+      "path": "src/format/narrative.ts",
+      "reason": "unnamed",
+      "name": "divText"
+    },
+    {
+      "path": "src/format/narrative.ts",
+      "reason": "unnamed",
+      "name": "textDiv"
+    },
+    {
+      "path": "src/format/tree.ts",
+      "reason": "unnamed",
+      "name": "LIMITS"
+    },
+    {
+      "path": "src/host/cli.ts",
+      "reason": "unreached"
+    },
+    {
+      "path": "src/host/health.ts",
+      "reason": "unnamed",
+      "name": "PROBE_TYPE"
+    },
+    {
+      "path": "src/host/main.ts",
+      "reason": "unnamed",
+      "name": "Unserved"
+    },
+    {
+      "path": "src/jobs/queue.ts",
+      "reason": "unnamed",
+      "name": "STATEMENTS"
+    },
+    {
+      "path": "src/jobs/queue.ts",
+      "reason": "unnamed",
+      "name": "BATCH"
+    },
+    {
+      "path": "src/model/resources.ts",
+      "reason": "unnamed",
+      "name": "DEFINITIONS"
+    },
+    {
+      "path": "src/obs/scrape.ts",
+      "reason": "unnamed",
+      "name": "ACTION"
+    },
+    {
+      "path": "src/obs/telemetry.ts",
+      "reason": "unnamed",
+      "name": "JOBS"
+    },
+    {
+      "path": "src/obs/telemetry.ts",
+      "reason": "unnamed",
+      "name": "OUTCOMES"
+    },
+    {
+      "path": "src/obs/telemetry.ts",
+      "reason": "unnamed",
+      "name": "TYPES"
+    },
+    {
+      "path": "src/obs/telemetry.ts",
+      "reason": "unnamed",
+      "name": "DEFAULT_LIMIT"
+    },
+    {
+      "path": "src/obs/telemetry.ts",
+      "reason": "unnamed",
+      "name": "opDims"
+    },
+    {
+      "path": "src/operations/compartment.ts",
+      "reason": "unnamed",
+      "name": "COMPARTMENT"
+    },
+    {
+      "path": "src/operations/compartment.ts",
+      "reason": "unnamed",
+      "name": "TYPES"
+    },
+    {
+      "path": "src/operations/compartment.ts",
+      "reason": "unnamed",
+      "name": "inCompartment"
+    },
+    {
+      "path": "src/operations/docref.ts",
+      "reason": "unnamed",
+      "name": "fromQuery"
+    },
+    {
+      "path": "src/operations/docref.ts",
+      "reason": "unnamed",
+      "name": "fromParameters"
+    },
+    {
+      "path": "src/operations/index.ts",
+      "reason": "unreached"
+    },
+    {
+      "path": "src/operations/page.ts",
+      "reason": "unnamed",
+      "name": "ID"
+    },
+    {
+      "path": "src/params/reindex.ts",
+      "reason": "unnamed",
+      "name": "BATCH"
+    },
+    {
+      "path": "src/persist/codec.ts",
+      "reason": "unnamed",
+      "name": "LEVEL"
+    },
+    {
+      "path": "src/persist/document.ts",
+      "reason": "unnamed",
+      "name": "documentsOn"
+    },
+    {
+      "path": "src/persist/feed.ts",
+      "reason": "unnamed",
+      "name": "feedOn"
+    },
+    {
+      "path": "src/persist/pool.ts",
+      "reason": "unnamed",
+      "name": "ceilingOf"
+    },
+    {
+      "path": "src/protocol/http.ts",
+      "reason": "unnamed",
+      "name": "TransportError"
+    },
+    {
+      "path": "src/replace/diff.ts",
+      "reason": "unnamed",
+      "name": "SEVERITY"
+    },
+    {
+      "path": "src/search/registry.ts",
+      "reason": "unnamed",
+      "name": "MODIFIERS"
+    },
+    {
+      "path": "src/store/definitions.ts",
+      "reason": "unnamed",
+      "name": "COMMON"
+    },
+    {
+      "path": "src/store/definitions.ts",
+      "reason": "unnamed",
+      "name": "DEFINITIONS"
+    },
+    {
+      "path": "src/store/query.ts",
+      "reason": "unnamed",
+      "name": "INDEX_SQL"
+    },
+    {
+      "path": "src/terminology/load.ts",
+      "reason": "unnamed",
+      "name": "filesLayer"
+    },
+    {
+      "path": "src/tools/cli.ts",
+      "reason": "unreached"
+    },
+    {
+      "path": "src/tools/scaffold.ts",
+      "reason": "unnamed",
+      "name": "JOBS"
+    },
+    {
+      "path": "src/trail/chain.ts",
+      "reason": "unnamed",
+      "name": "canon"
+    },
+    {
+      "path": "src/trail/store.ts",
+      "reason": "unnamed",
+      "name": "STATEMENTS"
+    },
+    {
+      "path": "src/versions/source.ts",
+      "reason": "unnamed",
+      "name": "SOURCE"
+    }
+  ]
+}
