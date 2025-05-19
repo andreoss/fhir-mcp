@@ -103,6 +103,22 @@
       "met": true
     },
     {
+      "id": "tool:job-cancel",
+      "met": true
+    },
+    {
+      "id": "tool:job-output",
+      "met": true
+    },
+    {
+      "id": "tool:job-status",
+      "met": true
+    },
+    {
+      "id": "tool:job-submit",
+      "met": true
+    },
+    {
       "id": "tool:lookup",
       "met": true
     },

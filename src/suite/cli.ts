@@ -16,7 +16,8 @@ const serving = Effect.gen(function* () {
     all,
     config.allowWrite ? all : undefined,
     all,
-    terms
+    terms,
+    config.allowWrite ? all : undefined
   )
   yield* Effect.addFinalizer(() => Effect.promise(() => server.close()))
   return yield* Effect.never
