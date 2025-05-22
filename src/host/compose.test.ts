@@ -4,6 +4,7 @@ import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Grant, Journal } from "../agent/write.js"
+import { FhirOperations } from "../agent/tools.js"
 import { FhirEngine } from "../core/engine.js"
 import { Versions } from "../core/interactions.js"
 import type { Failure } from "../core/outcome.js"
@@ -226,6 +227,49 @@ describe("what the composition root binds", () => {
       }))
     expect(seen.state).toBe("done")
     expect(seen.done).toBe(1)
+  })
+
+  it("serves an operations port that answers an operation by name", async () => {
+    const found = await inside(config(true), (context) =>
+      Effect.gen(function* () {
+        yield* Context.get(context, Versions).insertVersion({
+          type: "Patient",
+          id: "p1",
+          versionId: 1,
+          lastUpdated: new Date().toISOString(),
+          deleted: false,
+          body: vance
+        })
+        yield* Context.get(context, Versions).insertVersion({
+          type: "Observation",
+          id: "o1",
+          versionId: 1,
+          lastUpdated: new Date().toISOString(),
+          deleted: false,
+          body: { resourceType: "Observation", id: "o1", subject: { reference: "Patient/p1" } }
+        })
+        return yield* Context.get(context, FhirOperations).invoke({
+          name: "$everything",
+          type: "Patient",
+          id: "p1",
+          parameters: []
+        })
+      }))
+    expect(found.type).toBe("searchset")
+    expect((found.entry ?? []).map((one) => one.resource.id).sort()).toEqual(["o1", "p1"])
+  })
+
+  it("serves an operations port that refuses a patient it cannot reach", async () => {
+    const held: Config = { ...config(true), scopes: ["patient:p2/Observation.read"] }
+    await expect(
+      inside(held, (context) =>
+        Context.get(context, FhirOperations).invoke({
+          name: "$everything",
+          type: "Patient",
+          id: "p1",
+          parameters: []
+        }))
+    ).rejects.toThrow()
   })
 
   it("supplies a meter so the served path is measured", async () => {

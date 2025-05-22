@@ -104,6 +104,7 @@
     "src/operations/page.ts",
     "src/operations/profile.ts",
     "src/operations/records.ts",
+    "src/operations/serve.ts",
     "src/params/cache.ts",
     "src/params/gate.ts",
     "src/params/model.ts",
@@ -184,7 +185,7 @@
     "src/versions/source.ts",
     "src/versions/version.ts"
   ],
-  "tests": 176,
+  "tests": 177,
   "tested": [
     "src/agent/audit.ts",
     "src/agent/chunk.ts",
@@ -274,6 +275,7 @@
     "src/operations/member.ts",
     "src/operations/page.ts",
     "src/operations/profile.ts",
+    "src/operations/serve.ts",
     "src/params/cache.ts",
     "src/params/gate.ts",
     "src/params/registry.ts",

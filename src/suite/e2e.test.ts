@@ -267,6 +267,55 @@ describe("a writable build driven over stdio", () => {
     expect(record(called.body)["resourceType"]).toBe("OperationOutcome")
   })
 
+  it("invokes an operation on a served resource by name", async () => {
+    const made = await session.callTool("create", {
+      type: "Patient",
+      body: { resourceType: "Patient", id: "pe1" }
+    })
+    if (made.kind !== "answered" || made.isError) throw new Error("create was refused")
+    const seen = await session.callTool("create", {
+      type: "Condition",
+      body: {
+        resourceType: "Condition",
+        id: "ce1",
+        subject: { reference: "Patient/pe1" }
+      }
+    })
+    if (seen.kind !== "answered" || seen.isError) throw new Error("create was refused")
+
+    const called = await session.callTool("read", {
+      type: "Patient",
+      id: "pe1",
+      operation: "$everything"
+    })
+    if (called.kind !== "answered") throw new Error("read was refused")
+    expect(called.isError).toBe(false)
+    const bundle = record(called.body)
+    expect(bundle["resourceType"]).toBe("Bundle")
+    expect(bundle["type"]).toBe("searchset")
+    const entries = bundle["entry"] as ReadonlyArray<Record<string, unknown>>
+    expect(entries.map((one) => record(one["resource"])["id"]).sort()).toEqual(["ce1", "pe1"])
+
+    const narrowed = await session.callTool("read", {
+      type: "Patient",
+      id: "pe1",
+      operation: "$everything",
+      parameters: { _type: "Condition" }
+    })
+    if (narrowed.kind !== "answered") throw new Error("read was refused")
+    const only = record(narrowed.body)["entry"] as ReadonlyArray<Record<string, unknown>>
+    expect(only.map((one) => record(one["resource"])["id"])).toEqual(["ce1"])
+
+    const absent = await session.callTool("read", {
+      type: "Patient",
+      id: "no-such-patient",
+      operation: "$everything"
+    })
+    if (absent.kind !== "answered") throw new Error("read was refused")
+    expect(absent.isError).toBe(true)
+    expect(record(absent.body)["resourceType"]).toBe("OperationOutcome")
+  })
+
   it("refuses an unknown tool as a protocol error, not as a result", async () => {
     const called = await session.callTool("explode", {})
     expect(called.kind).toBe("refused")
