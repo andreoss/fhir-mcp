@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { Effect, Exit } from "effect"
 import { DuckDBInstance } from "@duckdb/node-api"
-import { restrictionOf, started } from "./wiring.js"
+import type { DuckDBConnection } from "@duckdb/node-api"
+import type { Bundle, FhirResource } from "../core/engine.js"
+import { UNRESTRICTED } from "../engine/restriction.js"
+import { binding, restrictionOf, started, startup } from "./wiring.js"
+import type { Startup } from "./wiring.js"
 import type { Config } from "../config/config.js"
 
 const config = (scopes: ReadonlyArray<string>): Config => ({
@@ -21,6 +25,39 @@ const tables = async (connection: never): Promise<ReadonlyArray<string>> => {
   return r.getRowObjects().map((row) => String(row["table_name"]))
 }
 
+const opened = async (): Promise<DuckDBConnection> => {
+  const instance = await DuckDBInstance.create(":memory:")
+  return await instance.connect()
+}
+
+const put = (held: Startup, body: FhirResource, versionId = 1) =>
+  held.versions.insertVersion({
+    type: body.resourceType,
+    id: String(body.id),
+    versionId,
+    lastUpdated: new Date().toISOString(),
+    deleted: false,
+    body
+  })
+
+const ids = (bundle: Bundle): ReadonlyArray<string> =>
+  (bundle.entry ?? []).map((one) => String(one.resource.id))
+
+const patient = (id: string, family: string): FhirResource => ({
+  resourceType: "Patient",
+  id,
+  name: [{ family, given: ["Ada"] }],
+  gender: "female"
+})
+
+const observation = (id: string, subject: string): FhirResource => ({
+  resourceType: "Observation",
+  id,
+  status: "final",
+  code: { coding: [{ code: "8867-4" }] },
+  subject: { reference: `Patient/${subject}` }
+})
+
 describe("wiring", () => {
   it("names an unrestricted binding rather than reaching it by omission", () => {
     expect(restrictionOf(config([])).name).toBe("unrestricted")
@@ -28,8 +65,7 @@ describe("wiring", () => {
   })
 
   it("creates the typed index tables the query backend needs", async () => {
-    const instance = await DuckDBInstance.create(":memory:")
-    const connection = await instance.connect()
+    const connection = await opened()
     await Effect.runPromise(Effect.scoped(started(connection as never)) as never)
     const held = await tables(connection as never)
     for (const wanted of ["index_token", "index_number", "index_date", "index_quantity", "index_reference"]) {
@@ -39,8 +75,7 @@ describe("wiring", () => {
   })
 
   it("builds one cache for the process, not one per engine", async () => {
-    const instance = await DuckDBInstance.create(":memory:")
-    const connection = await instance.connect()
+    const connection = await opened()
     const deps = await Effect.runPromise(Effect.scoped(started(connection as never)) as never) as { cache: unknown }
     const again = await Effect.runPromise(Effect.scoped(started(connection as never)) as never) as { cache: unknown }
     expect(deps.cache).toBeDefined()
@@ -49,10 +84,89 @@ describe("wiring", () => {
   })
 
   it("reports a store it cannot prepare rather than serving a broken engine", async () => {
-    const instance = await DuckDBInstance.create(":memory:")
-    const connection = await instance.connect()
+    const connection = await opened()
     connection.closeSync()
     const exit = await Effect.runPromiseExit(Effect.scoped(started(connection as never)) as never)
     expect(Exit.isFailure(exit)).toBe(true)
+  })
+})
+
+describe("the engine the wiring binds", () => {
+  let connection: DuckDBConnection
+  let held: Startup
+
+  beforeAll(async () => {
+    connection = await opened()
+    held = await Effect.runPromise(startup(connection))
+    await Effect.runPromise(put(held, patient("p1", "Vance")))
+    await Effect.runPromise(put(held, patient("p2", "Stone")))
+    await Effect.runPromise(put(held, observation("o1", "p1")))
+    await Effect.runPromise(put(held, observation("o2", "p2")))
+  }, 30000)
+
+  afterAll(() => {
+    connection.closeSync()
+  })
+
+  it("answers a modifier the naive index table cannot", async () => {
+    const engine = binding(held, UNRESTRICTED)
+    const found = await Effect.runPromise(
+      engine.search({ type: "Patient", parameters: [["family:contains", "anc"]] })
+    )
+    expect(ids(found)).toEqual(["p1"])
+  })
+
+  it("answers a chain across resources", async () => {
+    const engine = binding(held, UNRESTRICTED)
+    const found = await Effect.runPromise(
+      engine.search({ type: "Observation", parameters: [["subject:Patient.family", "Vance"]] })
+    )
+    expect(ids(found)).toEqual(["o1"])
+  })
+
+  it("sorts and pages what it returns", async () => {
+    const engine = binding(held, UNRESTRICTED)
+    const found = await Effect.runPromise(
+      engine.search({ type: "Patient", parameters: [["_sort", "family"]] })
+    )
+    expect(ids(found)).toEqual(["p2", "p1"])
+  })
+
+  it("binds one restriction per caller over one startup", async () => {
+    const open = binding(held, UNRESTRICTED)
+    const narrow = binding(held, restrictionOf(config(["patient:p1/*.read"])))
+    expect(ids(await Effect.runPromise(open.search({ type: "Observation", parameters: [] }))))
+      .toEqual(["o1", "o2"])
+    expect(ids(await Effect.runPromise(narrow.search({ type: "Observation", parameters: [] }))))
+      .toEqual(["o1"])
+  })
+
+  it("keeps a resource outside the grant out of a read", async () => {
+    const narrow = binding(held, restrictionOf(config(["patient:p1/*.read"])))
+    const exit = await Effect.runPromiseExit(narrow.read("Observation", "o2"))
+    expect(Exit.isFailure(exit)).toBe(true)
+  })
+
+  it("reports a deleted resource as deleted rather than as absent", async () => {
+    const engine = binding(held, UNRESTRICTED)
+    await Effect.runPromise(put(held, patient("p3", "Gray")))
+    await Effect.runPromise(held.versions.markDeleted("Patient", "p3", 2, new Date().toISOString()))
+    const exit = await Effect.runPromiseExit(engine.read("Patient", "p3"))
+    if (!Exit.isFailure(exit) || exit.cause._tag !== "Fail") throw new Error("expected a failure")
+    expect(exit.cause.error._tag).toBe("Gone")
+  })
+
+  it("reports what it never held as absent", async () => {
+    const engine = binding(held, UNRESTRICTED)
+    const exit = await Effect.runPromiseExit(engine.read("Patient", "nobody"))
+    if (!Exit.isFailure(exit) || exit.cause._tag !== "Fail") throw new Error("expected a failure")
+    expect(exit.cause.error._tag).toBe("NotFound")
+  })
+
+  it("names the types and the ready parameters a caller may use", async () => {
+    const engine = binding(held, UNRESTRICTED)
+    expect(await Effect.runPromise(engine.resourceTypes()))
+      .toEqual(["Patient", "Observation", "Condition", "Encounter"])
+    expect(await Effect.runPromise(engine.searchParameters("Patient"))).toContain("family")
   })
 })

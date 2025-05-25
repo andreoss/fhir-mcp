@@ -11,26 +11,75 @@ import {
 } from "@modelcontextprotocol/sdk/types.js"
 import type { FhirEngine } from "../core/engine.js"
 import { call, tools } from "../agent/tools.js"
-import type { ToolSpec } from "../agent/tools.js"
+import type { ToolResult, ToolSpec } from "../agent/tools.js"
 import { Grant, callWrite, writeTools } from "../agent/write.js"
 import type { Journal } from "../agent/write.js"
+import { statements } from "../conformance/capability.js"
+import { REGISTRIES, versions } from "../conformance/versions.js"
 import type { Rules, Versions } from "../core/interactions.js"
+import { edge } from "../obs/correlation.js"
+import { Metrics } from "../obs/metrics.js"
 import { PINNED_REVISION, capabilities, negotiate } from "./revision.js"
 
 const writeNames = new Set(writeTools.map((tool) => tool.name))
 
+const NAME = "fhir-mcp"
+
+const VERSION = "0.0.0"
+
+const REPORT = "capabilities"
+
 export type Writes = Layer.Layer<Versions | Rules | Grant | Journal>
+
+export type Observed = Layer.Layer<Metrics>
 
 export const surface = (writable: boolean): ReadonlyArray<ToolSpec> =>
   writable ? [...tools, ...writeTools] : tools
 
-export const build = (engine: Layer.Layer<FhirEngine>, writes?: Writes): Server => {
-  const runtime = ManagedRuntime.make(engine)
+const unmetered: Observed = Layer.succeed(Metrics, {
+  record: () => Effect.void,
+  time: (_op, _type, work) => work,
+  snapshot: Effect.succeed([])
+})
+
+export const reported = (
+  offered: ReadonlyArray<ToolSpec>,
+  result: ToolResult,
+  at: string
+): ToolResult => {
+  const first = result.content[0]
+  if (result.isError || first === undefined) return result
+  const body = JSON.parse(first.text) as Record<string, unknown>
+  return {
+    ...result,
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          ...body,
+          capabilityStatements: statements(
+            { software: { name: NAME, version: VERSION }, date: at },
+            REGISTRIES,
+            offered
+          ),
+          versions: versions()
+        })
+      }
+    ]
+  }
+}
+
+export const build = (
+  engine: Layer.Layer<FhirEngine>,
+  writes?: Writes,
+  observed: Observed = unmetered
+): Server => {
+  const runtime = ManagedRuntime.make(Layer.merge(engine, observed))
   const writing = writes === undefined ? undefined : ManagedRuntime.make(writes)
   const offered = surface(writing !== undefined)
   const offeredNames = new Set(offered.map((tool) => tool.name))
   const server = new Server(
-    { name: "fhir-mcp", version: "0.0.0" },
+    { name: NAME, version: VERSION },
     { capabilities: capabilities() }
   )
 
@@ -39,7 +88,7 @@ export const build = (engine: Layer.Layer<FhirEngine>, writes?: Writes): Server 
     return {
       protocolVersion: PINNED_REVISION,
       capabilities: capabilities(),
-      serverInfo: { name: "fhir-mcp", version: "0.0.0" }
+      serverInfo: { name: NAME, version: VERSION }
     }
   })
 
@@ -58,16 +107,25 @@ export const build = (engine: Layer.Layer<FhirEngine>, writes?: Writes): Server 
       throw new McpError(ErrorCode.InvalidParams, `unknown tool: ${name}`)
     }
     const args = request.params.arguments ?? {}
-    const result = writeNames.has(name) && writing !== undefined
+    const correlation = randomUUID()
+    const at = typeof args["type"] === "string" ? args["type"] : ""
+    const answered = writeNames.has(name) && writing !== undefined
       ? await writing.runPromise(
           Effect.flatMap(Grant, (held) =>
             Effect.provideService(callWrite(name, args), Grant, {
               ...held,
-              correlation: randomUUID()
+              correlation
             })
           )
         )
-      : await runtime.runPromise(call(name, args))
+      : await runtime.runPromise(
+          edge(
+            Effect.flatMap(Metrics, (meter) => meter.time(name, at, call(name, args))),
+            correlation
+          )
+        )
+    const result =
+      name === REPORT ? reported(offered, answered, new Date().toISOString()) : answered
     const content = [...result.content]
     if (result.elided !== undefined) {
       content.push({
@@ -92,11 +150,12 @@ export const build = (engine: Layer.Layer<FhirEngine>, writes?: Writes): Server 
 
 export const serveOverStdio = (
   engine: Layer.Layer<FhirEngine>,
-  writes?: Writes
+  writes?: Writes,
+  observed?: Observed
 ): Effect.Effect<Server, Error> =>
   Effect.tryPromise({
     try: async () => {
-      const server = build(engine, writes)
+      const server = build(engine, writes, observed)
       await server.connect(new StdioServerTransport())
       return server
     },

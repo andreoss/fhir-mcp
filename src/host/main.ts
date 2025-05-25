@@ -22,7 +22,7 @@ export const start = (
     }
     const context = yield* Layer.build(Layer.orDie(wiring(config)))
     const all = Layer.succeedContext(context)
-    return yield* serveOverStdio(all, config.allowWrite ? all : undefined)
+    return yield* serveOverStdio(all, config.allowWrite ? all : undefined, all)
   })
 
 export const main = (): Promise<void> =>

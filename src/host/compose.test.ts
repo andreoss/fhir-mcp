@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest"
-import { Effect, Layer } from "effect"
+import { Context, Effect, Layer } from "effect"
 import { Grant } from "../agent/write.js"
+import { FhirEngine } from "../core/engine.js"
+import { Versions } from "../core/interactions.js"
+import { Metrics } from "../obs/metrics.js"
+import { TerminologyPort } from "../terminology/port.js"
 import { grantOf, journalToErrors, wiring } from "./compose.js"
+import type { Wiring } from "./compose.js"
 import type { Config } from "../config/config.js"
 
 const config = (allowWrite: boolean): Config => ({
@@ -64,5 +69,62 @@ describe("composition", () => {
       Effect.scoped(Layer.build(Layer.orDie(wiring(config(false)))))
     )
     expect(built).toBeDefined()
+  })
+})
+
+const vance = {
+  resourceType: "Patient",
+  id: "p1",
+  name: [{ family: "Vance", given: ["Ada"] }],
+  gender: "female"
+}
+
+const inside = <A>(
+  held: Config,
+  use: (context: Context.Context<Wiring>) => Effect.Effect<A, unknown>
+): Promise<A> =>
+  Effect.runPromise(
+    Effect.scoped(
+      Effect.flatMap(Layer.build(Layer.orDie(wiring(held))), use)
+    ) as Effect.Effect<A>
+  )
+
+describe("what the composition root binds", () => {
+  it("serves the engine that understands a modifier, not the store that cannot", async () => {
+    const found = await inside(config(true), (context) =>
+      Effect.gen(function* () {
+        yield* Context.get(context, Versions).insertVersion({
+          type: "Patient",
+          id: "p1",
+          versionId: 1,
+          lastUpdated: new Date().toISOString(),
+          deleted: false,
+          body: vance
+        })
+        return yield* Context.get(context, FhirEngine).search({
+          type: "Patient",
+          parameters: [["family:contains", "anc"]]
+        })
+      }))
+    expect((found.entry ?? []).map((one) => one.resource.id)).toEqual(["p1"])
+  })
+
+  it("supplies a terminology port a caller can reach", async () => {
+    const found = await inside(config(false), (context) =>
+      Context.get(context, TerminologyPort).lookup({
+        system: "http://example/absent",
+        code: "a"
+      }))
+    expect(found._tag).toBe("Unsupplied")
+  })
+
+  it("supplies a meter so the served path is measured", async () => {
+    const seen = await inside(config(false), (context) =>
+      Effect.gen(function* () {
+        const meter = Context.get(context, Metrics)
+        yield* meter.record("search", "Patient", "success", 4)
+        return yield* meter.snapshot
+      }))
+    expect(seen.map((one) => one.op)).toEqual(["search"])
   })
 })
