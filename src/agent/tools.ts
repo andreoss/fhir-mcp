@@ -1,10 +1,12 @@
-import { Effect, ParseResult, Schema } from "effect"
+import { Context, Duration, Effect, Option, ParseResult, Schema } from "effect"
 import { FhirEngine } from "../core/engine.js"
 import type { Bundle, FhirResource } from "../core/engine.js"
-import { Rejected, toOutcome } from "../core/outcome.js"
-import type { Failure } from "../core/outcome.js"
+import { Rejected, Unavailable, toOutcome } from "../core/outcome.js"
+import type { Failure, OperationOutcome } from "../core/outcome.js"
 import { issue, redeem } from "./cursor.js"
 import { keep } from "./elements.js"
+import { OperationName, Parameters, flatten, named, refusal } from "./params.js"
+import type { Pair, Scope } from "./params.js"
 
 export interface ToolAnnotations {
   readonly readOnlyHint: boolean
@@ -30,7 +32,31 @@ export interface ToolResult {
   readonly elided?: { readonly returned: number; readonly of: number }
 }
 
+export interface OperationCall {
+  readonly name: string
+  readonly type: string
+  readonly id?: string
+  readonly parameters: ReadonlyArray<Pair>
+}
+
+export interface Operations {
+  readonly invoke: (call: OperationCall) => Effect.Effect<Bundle, Failure>
+}
+
+export class FhirOperations extends Context.Tag("FhirOperations")<
+  FhirOperations,
+  Operations
+>() {}
+
+export interface Bound {
+  readonly millis: number
+}
+
+export class Deadline extends Context.Tag("AgentDeadline")<Deadline, Bound>() {}
+
 export const DEFAULT_MAX_ENTRIES = 25
+
+export const DEFAULT_DEADLINE_MS = 30_000
 
 const ResourceType = Schema.String.pipe(
   Schema.pattern(/^[A-Z][A-Za-z]{1,63}$/)
@@ -50,16 +76,22 @@ const Elements = Schema.optionalWith(Schema.Array(ElementPath), {
   default: () => [] as ReadonlyArray<string>
 })
 
-const ReadArgs = Schema.Struct({ type: ResourceType, id: Id, elements: Elements })
+const ReadArgs = Schema.Struct({
+  type: ResourceType,
+  id: Id,
+  elements: Elements,
+  parameters: Parameters,
+  operation: Schema.optional(OperationName),
+  max: Schema.optional(Max)
+})
 
 const SearchArgs = Schema.Struct({
   type: ResourceType,
-  parameters: Schema.optionalWith(Schema.Record({ key: Schema.String, value: Schema.String }), {
-    default: () => ({})
-  }),
+  parameters: Parameters,
   elements: Elements,
   max: Schema.optionalWith(Max, { default: () => DEFAULT_MAX_ENTRIES }),
-  cursor: Schema.optional(Schema.String)
+  cursor: Schema.optional(Schema.String),
+  operation: Schema.optional(OperationName)
 })
 
 const CapabilitiesArgs = Schema.Struct({ type: Schema.optional(ResourceType) })
@@ -77,16 +109,35 @@ const elementsProperty = {
   description: "Element paths to keep, such as name.family. Omit for the whole resource."
 }
 
+const parametersProperty = {
+  type: "object",
+  description:
+    "Search parameter names and values. A value may be a list, which repeats " +
+    "the parameter and narrows the answer, as in " +
+    '{"date": ["ge2024-01-01", "le2024-12-31"]}.'
+}
+
+const operationProperty = {
+  type: "string",
+  enum: named(),
+  description: "Named operation to invoke in place of the plain interaction."
+}
+
+const maxProperty = { type: "integer", description: "Largest number of entries to return." }
+
 export const tools: ReadonlyArray<ToolSpec> = [
   {
     name: "read",
-    description: "Retrieve one resource by type and id.",
+    description: "Retrieve one resource by type and id, or invoke an operation on it.",
     inputSchema: {
       type: "object",
       properties: {
         type: { type: "string", description: "Resource type name." },
         id: { type: "string", description: "Logical id of the resource." },
-        elements: elementsProperty
+        elements: elementsProperty,
+        parameters: parametersProperty,
+        operation: operationProperty,
+        max: maxProperty
       },
       required: ["type", "id"]
     },
@@ -94,15 +145,16 @@ export const tools: ReadonlyArray<ToolSpec> = [
   },
   {
     name: "search",
-    description: "Search one resource type and return a bundle of matches.",
+    description: "Search one resource type, or invoke an operation on the type.",
     inputSchema: {
       type: "object",
       properties: {
         type: { type: "string", description: "Resource type name." },
-        parameters: { type: "object", description: "Search parameter names and values." },
+        parameters: parametersProperty,
         elements: elementsProperty,
-        max: { type: "integer", description: "Largest number of entries to return." },
-        cursor: { type: "string", description: "Continuation token from a previous answer." }
+        max: maxProperty,
+        cursor: { type: "string", description: "Continuation token from a previous answer." },
+        operation: operationProperty
       },
       required: ["type"]
     },
@@ -110,7 +162,7 @@ export const tools: ReadonlyArray<ToolSpec> = [
   },
   {
     name: "capabilities",
-    description: "Report the resource types served and the parameters a type accepts.",
+    description: "Report the resource types served, their parameters and operations.",
     inputSchema: {
       type: "object",
       properties: { type: { type: "string", description: "Resource type name." } },
@@ -126,7 +178,23 @@ const text = (value: unknown): ReadonlyArray<{ readonly type: "text"; readonly t
   { type: "text", text: JSON.stringify(value) }
 ]
 
-const failed = (failure: Failure): ToolResult => ({ content: text(toOutcome(failure)), isError: true })
+const refused = (found: OperationOutcome): ToolResult => ({ content: text(found), isError: true })
+
+const failed = (failure: Failure): ToolResult => refused(toOutcome(failure))
+
+const expired = (millis: number): ToolResult =>
+  refused({
+    resourceType: "OperationOutcome",
+    issue: [
+      {
+        severity: "error",
+        code: "transient",
+        diagnostics:
+          `deadline of ${millis}ms expired; ` +
+          `retry after ${Math.max(1, Math.ceil(millis / 1000))}s`
+      }
+    ]
+  })
 
 const succeeded = (
   value: unknown,
@@ -148,23 +216,103 @@ const decode = <A, I>(schema: Schema.Schema<A, I>, args: unknown) =>
     Effect.mapError((error) => new Rejected({ reason: reasons(error) }))
   )
 
+const reject = (reason: string) => Effect.fail(new Rejected({ reason }))
+
+const trimmed = (
+  found: Bundle,
+  elements: ReadonlyArray<string>,
+  max: number
+): ToolResult => {
+  const all = found.entry ?? []
+  const entry = all.slice(0, max).map((one) => ({
+    ...one,
+    resource: keep(one.resource as Record<string, unknown>, elements) as FhirResource
+  }))
+  const total = found.total ?? all.length
+  const bundle = { ...found, total, entry }
+  return entry.length < total
+    ? succeeded(bundle, { returned: entry.length, of: total })
+    : succeeded(bundle)
+}
+
+interface Asked {
+  readonly name: string
+  readonly scope: Scope
+  readonly type: string
+  readonly id?: string
+  readonly parameters: ReadonlyArray<Pair>
+  readonly elements: ReadonlyArray<string>
+  readonly max: number
+}
+
+const operate = (asked: Asked): Effect.Effect<ToolResult, Failure> =>
+  Effect.gen(function* () {
+    const why = refusal(asked.name, asked.type, asked.scope)
+    if (why !== undefined) return yield* reject(why)
+    const port = yield* Effect.serviceOption(FhirOperations)
+    if (Option.isNone(port)) {
+      return yield* Effect.fail(new Unavailable({ dependency: "operations" }))
+    }
+    const found = yield* port.value.invoke({
+      name: asked.name,
+      type: asked.type,
+      parameters: asked.parameters,
+      ...(asked.id === undefined ? {} : { id: asked.id })
+    })
+    return trimmed(found, asked.elements, asked.max)
+  })
+
+const idle = (parameters: ReadonlyArray<Pair>, max: number | undefined): string | undefined =>
+  parameters.length > 0
+    ? "parameters: only an operation takes parameters on a read"
+    : max === undefined
+      ? undefined
+      : "max: only an operation returns a bundle from a read"
+
 const readTool = (args: unknown) =>
   Effect.gen(function* () {
-    const decoded = yield* decode(ReadArgs, args)
+    const asked = yield* decode(ReadArgs, args)
+    const parameters = flatten(asked.parameters)
+    if (asked.operation !== undefined) {
+      return yield* operate({
+        name: asked.operation,
+        scope: "instance",
+        type: asked.type,
+        id: asked.id,
+        parameters,
+        elements: asked.elements,
+        max: asked.max ?? DEFAULT_MAX_ENTRIES
+      })
+    }
+    const spare = idle(parameters, asked.max)
+    if (spare !== undefined) return yield* reject(spare)
     const engine = yield* FhirEngine
-    const resource: FhirResource = yield* engine.read(decoded.type, decoded.id)
-    return succeeded(keep(resource as Record<string, unknown>, decoded.elements))
+    const resource: FhirResource = yield* engine.read(asked.type, asked.id)
+    return succeeded(keep(resource as Record<string, unknown>, asked.elements))
   })
 
 const searchTool = (args: unknown) =>
   Effect.gen(function* () {
     const decoded = yield* decode(SearchArgs, args)
-    const parameters = Object.entries(decoded.parameters)
+    const parameters = flatten(decoded.parameters)
+    if (decoded.operation !== undefined) {
+      if (decoded.cursor !== undefined) {
+        return yield* reject("cursor: an operation carries its own continuation")
+      }
+      return yield* operate({
+        name: decoded.operation,
+        scope: "type",
+        type: decoded.type,
+        parameters,
+        elements: decoded.elements,
+        max: decoded.max
+      })
+    }
     let offset = 0
     if (decoded.cursor !== undefined) {
       const position = redeem(decoded.cursor, decoded.type, parameters)
       if (position === undefined) {
-        return yield* Effect.fail(new Rejected({ reason: "continuation token not accepted" }))
+        return yield* reject("continuation token not accepted")
       }
       offset = position.offset
     }
@@ -202,14 +350,32 @@ const capabilitiesTool = (args: unknown) =>
     const resourceTypes = yield* engine.resourceTypes()
     if (decoded.type === undefined) return succeeded({ resourceTypes })
     const parameters = yield* engine.searchParameters(decoded.type)
-    return succeeded({ resourceTypes, type: decoded.type, parameters })
+    return succeeded({ resourceTypes, type: decoded.type, parameters, operations: named() })
   })
 
-export const call = (name: string, args: unknown): Effect.Effect<ToolResult, never, FhirEngine> => {
-  if (!names.has(name)) {
-    return Effect.succeed(failed(new Rejected({ reason: `unknown tool: ${name}` })))
-  }
-  const chosen =
-    name === "read" ? readTool(args) : name === "search" ? searchTool(args) : capabilitiesTool(args)
-  return chosen.pipe(Effect.catchAll((failure) => Effect.succeed(failed(failure))))
-}
+const bound = Effect.serviceOption(Deadline).pipe(
+  Effect.map(
+    Option.match({
+      onNone: () => DEFAULT_DEADLINE_MS,
+      onSome: (one: Bound) => one.millis
+    })
+  )
+)
+
+export const call = (name: string, args: unknown): Effect.Effect<ToolResult, never, FhirEngine> =>
+  Effect.gen(function* () {
+    if (!names.has(name)) {
+      return failed(new Rejected({ reason: `unknown tool: ${name}` }))
+    }
+    const millis = yield* bound
+    const chosen =
+      name === "read" ? readTool(args) : name === "search" ? searchTool(args) : capabilitiesTool(args)
+    return yield* chosen.pipe(
+      Effect.catchAll((failure) => Effect.succeed(failed(failure))),
+      Effect.timeoutTo({
+        duration: Duration.millis(millis),
+        onTimeout: () => expired(millis),
+        onSuccess: (result: ToolResult) => result
+      })
+    )
+  })
