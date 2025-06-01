@@ -13,6 +13,7 @@ const valid: BackendInput = {
     tokenUrl: "https://auth.example/token",
     clientId: "client-1",
     kid: "key-1",
+    key: "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0t",
     assertionLifetimeMs: "300000",
     refreshMarginMs: "10000"
   }
@@ -31,6 +32,7 @@ describe("backend config", () => {
       tokenUrl: "https://auth.example/token",
       clientId: "client-1",
       kid: "key-1",
+      key: "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0t",
       assertionLifetimeMs: 300000,
       refreshMarginMs: 10000
     })
@@ -53,7 +55,25 @@ describe("backend config", () => {
   })
 
   it("refuses a smart backend missing its token url", () => {
-    expect(() => parse({ ...valid, auth: { scheme: "smart", clientId: "c", kid: "k", assertionLifetimeMs: "1", refreshMarginMs: "1" } })).toThrow(MissingField)
+    expect(() => parse({ ...valid, auth: { scheme: "smart", clientId: "c", kid: "k", key: "k", assertionLifetimeMs: "1", refreshMarginMs: "1" } })).toThrow(MissingField)
+  })
+
+  it("refuses a smart backend missing its signing key", () => {
+    expect(() => parse({ ...valid, auth: { scheme: "smart", tokenUrl: "https://auth.example/token", clientId: "c", kid: "k" } })).toThrow(MissingField)
+  })
+
+  it("keeps an issued scope when one is named", () => {
+    const parsed = parse({ ...valid, auth: { ...valid.auth, scope: "patient/Patient.read" } } as BackendInput)
+    expect(parsed.auth).toEqual({
+      scheme: "smart",
+      tokenUrl: "https://auth.example/token",
+      clientId: "client-1",
+      kid: "key-1",
+      key: "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0t",
+      scope: "patient/Patient.read",
+      assertionLifetimeMs: 300000,
+      refreshMarginMs: 10000
+    })
   })
 
   it("refuses a negative timeout", () => {

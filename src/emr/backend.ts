@@ -16,6 +16,8 @@ export interface AuthSmart {
   readonly tokenUrl: string
   readonly clientId: string
   readonly kid: string
+  readonly key: string
+  readonly scope?: string
   readonly assertionLifetimeMs: number
   readonly refreshMarginMs: number
 }
@@ -64,11 +66,11 @@ export const requiredPositive = (backend: string, field: string, value: unknown)
 }
 
 export interface BackendInput {
-  readonly name: string
-  readonly baseUrl: string
-  readonly provider?: string
-  readonly timeoutMs?: string
-  readonly retryAfterMs?: string
+  readonly name?: string | undefined
+  readonly baseUrl?: string | undefined
+  readonly provider?: string | undefined
+  readonly timeoutMs?: string | undefined
+  readonly retryAfterMs?: string | undefined
   readonly auth?: {
     readonly scheme?: string | undefined
     readonly token?: string | undefined
@@ -77,6 +79,8 @@ export interface BackendInput {
     readonly tokenUrl?: string | undefined
     readonly clientId?: string | undefined
     readonly kid?: string | undefined
+    readonly key?: string | undefined
+    readonly scope?: string | undefined
     readonly assertionLifetimeMs?: string | undefined
     readonly refreshMarginMs?: string | undefined
   } | undefined
@@ -116,8 +120,12 @@ export const parse = (input: BackendInput): BackendConfig => {
         tokenUrl: required(name, "auth.tokenUrl", input.auth?.tokenUrl),
         clientId: required(name, "auth.clientId", input.auth?.clientId),
         kid: required(name, "auth.kid", input.auth?.kid),
+        key: required(name, "auth.key", input.auth?.key),
         assertionLifetimeMs: requiredPositive(name, "auth.assertionLifetimeMs", input.auth?.assertionLifetimeMs),
-        refreshMarginMs: requiredPositive(name, "auth.refreshMarginMs", input.auth?.refreshMarginMs)
+        refreshMarginMs: requiredPositive(name, "auth.refreshMarginMs", input.auth?.refreshMarginMs),
+        ...(input.auth?.scope !== undefined && input.auth.scope.trim().length > 0
+          ? { scope: input.auth.scope.trim() }
+          : {})
       }
       break
     default:

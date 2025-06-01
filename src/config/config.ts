@@ -1,4 +1,6 @@
 import { Data, Effect, ParseResult, Schema } from "effect"
+import { MissingField, parse } from "../emr/backend.js"
+import type { BackendConfig, BackendInput } from "../emr/backend.js"
 
 export class ConfigError extends Data.TaggedError("ConfigError")<{
   readonly problems: ReadonlyArray<string>
@@ -48,6 +50,27 @@ const Fields = Schema.Struct({
 export type Transport = typeof Fields.Type["FHIR_TRANSPORT"]
 export type LogLevel = typeof Fields.Type["FHIR_LOG_LEVEL"]
 
+const EMR_PREFIX = "FHIR_EMR"
+
+const EMR = {
+  BACKEND: "FHIR_EMR_BACKEND",
+  BASE_URL: "FHIR_EMR_BASE_URL",
+  PROVIDER: "FHIR_EMR_PROVIDER",
+  TIMEOUT_MS: "FHIR_EMR_TIMEOUT_MS",
+  RETRY_AFTER_MS: "FHIR_EMR_RETRY_AFTER_MS",
+  AUTH_SCHEME: "FHIR_EMR_AUTH_SCHEME",
+  AUTH_TOKEN: "FHIR_EMR_AUTH_TOKEN",
+  AUTH_USERNAME: "FHIR_EMR_AUTH_USERNAME",
+  AUTH_PASSWORD: "FHIR_EMR_AUTH_PASSWORD",
+  AUTH_TOKEN_URL: "FHIR_EMR_AUTH_TOKEN_URL",
+  AUTH_CLIENT_ID: "FHIR_EMR_AUTH_CLIENT_ID",
+  AUTH_KID: "FHIR_EMR_AUTH_KID",
+  AUTH_KEY: "FHIR_EMR_AUTH_KEY",
+  AUTH_SCOPE: "FHIR_EMR_AUTH_SCOPE",
+  AUTH_ASSERTION_LIFETIME_MS: "FHIR_EMR_AUTH_ASSERTION_LIFETIME_MS",
+  AUTH_REFRESH_MARGIN_MS: "FHIR_EMR_AUTH_REFRESH_MARGIN_MS"
+} as const
+
 export interface Config {
   readonly transport: Transport
   readonly http: {
@@ -60,6 +83,7 @@ export interface Config {
   readonly scopes: ReadonlyArray<string>
   readonly terminologyDir: string | undefined
   readonly logLevel: LogLevel
+  readonly emr?: BackendConfig
 }
 
 const loopback = new Set(["127.0.0.1", "::1", "localhost"])
@@ -110,15 +134,66 @@ const shape = (decoded: typeof Fields.Type): Config => ({
   logLevel: decoded.FHIR_LOG_LEVEL
 })
 
+const anyEmr = (env: Record<string, string | undefined>): boolean =>
+  Object.keys(env).some((key) => key.startsWith(EMR_PREFIX))
+
+const hasAuthScheme = (env: Record<string, string | undefined>): boolean => {
+  const raw = env[EMR.AUTH_SCHEME]
+  return raw !== undefined && raw.trim().length > 0
+}
+
+const readEmr = (
+  env: Record<string, string | undefined>,
+  problems: Array<string>
+): BackendConfig | undefined => {
+  if (!anyEmr(env)) return undefined
+  const value = (field: string): string | undefined => {
+    const raw = env[field]
+    return raw === undefined ? undefined : raw
+  }
+  const input: BackendInput = {
+    name: value(EMR.BACKEND),
+    baseUrl: value(EMR.BASE_URL),
+    provider: value(EMR.PROVIDER),
+    timeoutMs: value(EMR.TIMEOUT_MS),
+    retryAfterMs: value(EMR.RETRY_AFTER_MS),
+    auth: hasAuthScheme(env)
+      ? {
+        scheme: value(EMR.AUTH_SCHEME),
+        token: value(EMR.AUTH_TOKEN),
+        username: value(EMR.AUTH_USERNAME),
+        password: value(EMR.AUTH_PASSWORD),
+        tokenUrl: value(EMR.AUTH_TOKEN_URL),
+        clientId: value(EMR.AUTH_CLIENT_ID),
+        kid: value(EMR.AUTH_KID),
+        key: value(EMR.AUTH_KEY),
+        scope: value(EMR.AUTH_SCOPE),
+        assertionLifetimeMs: value(EMR.AUTH_ASSERTION_LIFETIME_MS),
+        refreshMarginMs: value(EMR.AUTH_REFRESH_MARGIN_MS)
+      }
+      : undefined
+  }
+  try {
+    return parse(input)
+  } catch (error) {
+    if (error instanceof MissingField) problems.push(error.message)
+    else problems.push(`emr: ${error instanceof Error ? error.message : String(error)}`)
+    return undefined
+  }
+}
+
 export const load = (
   env: Record<string, string | undefined>
 ): Effect.Effect<Config, ConfigError> =>
-  Schema.decodeUnknown(Fields)(present(env), { errors: "all" }).pipe(
-    Effect.mapError((error) => new ConfigError({ problems: describe(error) })),
-    Effect.flatMap((decoded) => {
-      const problems = crossFieldProblems(decoded)
-      return problems.length > 0
-        ? Effect.fail(new ConfigError({ problems }))
-        : Effect.succeed(shape(decoded))
-    })
-  )
+  Effect.gen(function* () {
+    const decoded = yield* Schema.decodeUnknown(Fields)(present(env), { errors: "all" }).pipe(
+      Effect.mapError((error) => new ConfigError({ problems: describe(error) }))
+    )
+    const problems: Array<string> = [...crossFieldProblems(decoded)]
+    const emr = readEmr(env, problems)
+    if (problems.length > 0) {
+      return yield* Effect.fail(new ConfigError({ problems }))
+    }
+    const config = shape(decoded)
+    return emr === undefined ? config : { ...config, emr }
+  })
