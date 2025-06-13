@@ -90,6 +90,34 @@ describe("lifecycle", () => {
     expect(net.seen.length).toBe(2)
   })
 
+  it("refreshes each issuer on its own margin, never one shared", async () => {
+    const nervous = { ...CFG, refreshMarginMs: 300_000 }
+    const calm = { ...CFG, refreshMarginMs: 10_000 }
+    const nervousNet = netOf(() => granted("nervous"))
+    const calmNet = netOf(() => granted("calm"))
+    const nervousLf = lifecycle(nervous, signerOf("key-1"), cache(nervous, signerOf("key-1")))
+    const calmLf = lifecycle(calm, signerOf("key-1"), cache(calm, signerOf("key-1")))
+    await Effect.runPromise(
+      nervousLf.obtain().pipe(Effect.provideService(TokenClock as never, clockAt(NOW_MS)), Effect.provideService(TokenNet as never, nervousNet))
+    )
+    await Effect.runPromise(
+      calmLf.obtain().pipe(Effect.provideService(TokenClock as never, clockAt(NOW_MS)), Effect.provideService(TokenNet as never, calmNet))
+    )
+    const fiveMinutesEarly = clockAt(NOW_MS + 3300_000)
+    expect(
+      await Effect.runPromise(
+        nervousLf.token().pipe(Effect.provideService(TokenClock as never, fiveMinutesEarly), Effect.provideService(TokenNet as never, nervousNet))
+      )
+    ).toBe("nervous")
+    expect(
+      await Effect.runPromise(
+        calmLf.token().pipe(Effect.provideService(TokenClock as never, fiveMinutesEarly), Effect.provideService(TokenNet as never, calmNet))
+      )
+    ).toBe("calm")
+    expect(nervousNet.seen.length).toBe(2)
+    expect(calmNet.seen.length).toBe(1)
+  })
+
   it("names the expiry instead of retrying a dead grant", async () => {
     const signer = signerOf("key-1")
     const net = netOf(() => granted("never"))
