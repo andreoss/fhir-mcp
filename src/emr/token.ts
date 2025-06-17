@@ -63,6 +63,7 @@ export interface Held {
   readonly store: (token: TokenResponse) => void
   readonly current: (now: number) => TokenResponse | undefined
   readonly grant: () => TokenResponse | undefined
+  readonly invalidate: () => void
 }
 
 export const cache = (cfg: IssuerConfig, signer: AssertionSigner): Held => {
@@ -105,7 +106,10 @@ export const cache = (cfg: IssuerConfig, signer: AssertionSigner): Held => {
     assert,
     store,
     current: currentOf,
-    grant: () => current
+    grant: () => current,
+    invalidate: () => {
+      current = undefined
+    }
   }
 }
 

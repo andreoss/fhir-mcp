@@ -6,6 +6,7 @@ export interface Lifecycle {
   readonly obtain: () => Effect.Effect<string, TokenFailure, TokenClock | TokenNet>
   readonly refresh: () => Effect.Effect<string, TokenFailure, TokenClock | TokenNet>
   readonly token: () => Effect.Effect<string, TokenFailure, TokenClock | TokenNet>
+  readonly invalidate: () => Effect.Effect<void, never>
 }
 
 export const lifecycle = (cfg: IssuerConfig, signer: AssertionSigner, held: Held): Lifecycle => {
@@ -14,6 +15,7 @@ export const lifecycle = (cfg: IssuerConfig, signer: AssertionSigner, held: Held
   return {
     obtain: () => asString,
     refresh: () => asString,
+    invalidate: () => Effect.sync(() => held.invalidate()),
     token: () =>
       Effect.gen(function* () {
         const clock = yield* TokenClock
