@@ -9,6 +9,7 @@ import type { Restriction } from "../engine/restriction.js"
 import { creditOf, engineOf, issuerOf, overTransport, remoteEngine } from "../host/wiring.js"
 import type { Startup } from "../host/wiring.js"
 import type { BackendConfig } from "./backend.js"
+import type { AuthSmart } from "./backend.js"
 import type { Answer, Bound, SendRequest } from "./wire.js"
 
 const creditNone = (): Effect.Effect<Readonly<Record<string, string>>, never> =>
@@ -172,7 +173,7 @@ describe("credit composition", () => {
         refreshMarginMs: 15000
       }
     })
-    const issuer = issuerOf(smart.auth)
+    const issuer = issuerOf(smart.auth as AuthSmart)
     expect(issuer.refreshMarginMs).toBe(15000)
     expect(issuer.assertionLifetimeMs).toBe(300000)
     expect(issuer.scope).toBe("patient/Patient.read")
