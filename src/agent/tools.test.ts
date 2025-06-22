@@ -371,6 +371,24 @@ describe("repeated search parameters", () => {
   })
 })
 
+describe("AGT-15 discover before you search", () => {
+  it("sends a model to capabilities before it searches", () => {
+    const search = tools.find((one) => one.name === "search")
+    expect(search?.description.toLowerCase()).toContain("capabilities")
+    expect(search?.description.toLowerCase()).toContain("first")
+  })
+
+  it("sends a model to capabilities before it reads", () => {
+    const read = tools.find((one) => one.name === "read")
+    expect(read?.description.toLowerCase()).toContain("capabilities")
+  })
+
+  it("tells which resource types to ask capabilities for", () => {
+    const capabilities = tools.find((one) => one.name === "capabilities")
+    expect(capabilities?.description.toLowerCase()).toContain("type")
+  })
+})
+
 describe("named operations", () => {
   const answer: Bundle = {
     resourceType: "Bundle",

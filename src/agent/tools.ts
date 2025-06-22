@@ -130,7 +130,9 @@ const maxProperty = { type: "integer", description: "Largest number of entries t
 export const tools: ReadonlyArray<ToolSpec> = [
   {
     name: "read",
-    description: "Retrieve one resource by type and id, or invoke an operation on it.",
+    description:
+      "Retrieve one resource by type and id, or invoke an operation on it. " +
+      "Call capabilities first to learn which resource types the server serves.",
     inputSchema: {
       type: "object",
       properties: {
@@ -147,7 +149,10 @@ export const tools: ReadonlyArray<ToolSpec> = [
   },
   {
     name: "search",
-    description: "Search one resource type, or invoke an operation on the type.",
+    description:
+      "Search one resource type, or invoke an operation on the type. " +
+      "Call capabilities first to learn which resource types are served and " +
+      "the search parameters each accepts.",
     inputSchema: {
       type: "object",
       properties: {
