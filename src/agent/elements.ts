@@ -45,3 +45,18 @@ export const keep = (
   }
   return base
 }
+
+export const missing = (
+  resource: Record<string, Value>,
+  paths: ReadonlyArray<string>
+): ReadonlyArray<string> =>
+  paths.filter((path) => pick(resource, path.split(".")) === undefined)
+
+export const missingIn = (
+  resources: ReadonlyArray<Record<string, Value>>,
+  paths: ReadonlyArray<string>
+): ReadonlyArray<string> => {
+  if (resources.length === 0) return []
+  const gaps = resources.map((resource) => missing(resource, paths))
+  return paths.filter((path) => gaps.every((one) => one.includes(path)))
+}
