@@ -2,14 +2,20 @@ import { Effect, Layer, ManagedRuntime } from "effect"
 import { randomUUID } from "node:crypto"
 import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
 import {
   CallToolRequestSchema,
   ErrorCode,
   InitializeRequestSchema,
+  ListResourcesRequestSchema,
+  ListResourceTemplatesRequestSchema,
   ListToolsRequestSchema,
-  McpError
+  McpError,
+  ReadResourceRequestSchema,
+  SubscribeRequestSchema,
+  UnsubscribeRequestSchema
 } from "@modelcontextprotocol/sdk/types.js"
-import type { FhirEngine } from "../core/engine.js"
+import { FhirEngine } from "../core/engine.js"
 import { call, tools } from "../agent/tools.js"
 import type { ToolResult, ToolSpec } from "../agent/tools.js"
 import { Grant, callWrite, writeTools } from "../agent/write.js"
@@ -21,6 +27,10 @@ import { edge } from "../obs/correlation.js"
 import { Metrics } from "../obs/metrics.js"
 import { PINNED_REVISION, capabilities, negotiate } from "./revision.js"
 import { paginate } from "./cursor.js"
+import { TEMPLATES, address, uriOf } from "./resources.js"
+import type { ResourceEntry } from "./resources.js"
+import { Session } from "./session.js"
+import { INSTRUCTIONS } from "./instructions.js"
 
 const writeNames = new Set(writeTools.map((tool) => tool.name))
 
@@ -94,12 +104,42 @@ export const build = (
     { capabilities: capabilities() }
   )
 
-  server.setRequestHandler(InitializeRequestSchema, async (request) => {
+  const sessions = new Map<string, Session>()
+  const own = (sessionId: string | undefined): Session => {
+    const id = sessionId ?? ""
+    const current = sessions.get(id)
+    if (current !== undefined) return current
+    const created = new Session()
+    sessions.set(id, created)
+    return created
+  }
+  const signatures = new Map<Session, string>()
+  const resourceEntries = async (): Promise<ReadonlyArray<ResourceEntry>> => {
+    const types = await runtime.runPromise(
+      Effect.flatMap(FhirEngine, (held) => held.resourceTypes())
+    )
+    return [...types].sort().map((type) => ({
+      uri: uriOf(type),
+      name: `${type} resources`,
+      description: "resources of one FHIR type",
+      mimeType: "application/fhir+json"
+    }))
+  }
+
+  const connect = server.connect.bind(server)
+  server.connect = async (transport: Transport) => {
+    if (transport.sessionId === undefined) transport.sessionId = randomUUID()
+    return connect(transport)
+  }
+
+  server.setRequestHandler(InitializeRequestSchema, async (request, extra) => {
     negotiate(request.params.protocolVersion)
+    own(extra.sessionId).adopt(request.params.capabilities)
     return {
       protocolVersion: PINNED_REVISION,
       capabilities: capabilities(),
-      serverInfo: { name: NAME, version: VERSION }
+      serverInfo: { name: NAME, version: VERSION },
+      instructions: INSTRUCTIONS
     }
   })
 
@@ -154,6 +194,62 @@ export const build = (
       })
     }
     return { content, isError: result.isError }
+  })
+
+  server.setRequestHandler(ListResourcesRequestSchema, async (request, extra) => {
+    const session = own(extra.sessionId)
+    const entries = await resourceEntries()
+    const signature = entries.map((entry) => entry.uri).join("|")
+    const prior = signatures.get(session)
+    signatures.set(session, signature)
+    if (prior !== undefined && prior !== signature && session.hasSubscriptions()) {
+      await extra.sendNotification({ method: "notifications/resources/list_changed" })
+    }
+    const part = paginate(entries, request.params?.cursor, "resources")
+    if (part === undefined) {
+      throw new McpError(ErrorCode.InvalidParams, "resources cursor not accepted")
+    }
+    return {
+      resources: part.page,
+      ...(part.nextCursor === undefined ? {} : { nextCursor: part.nextCursor })
+    }
+  })
+
+  server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({
+    resourceTemplates: TEMPLATES
+  }))
+
+  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    const uri = request.params.uri
+    const at = address(uri)
+    if (at === undefined || at.id === undefined) {
+      throw new McpError(ErrorCode.InvalidParams, `unreadable uri: ${uri}`)
+    }
+    const type = at.type
+    const id = at.id
+    try {
+      const resource = await runtime.runPromise(
+        edge(Effect.flatMap(FhirEngine, (held) => held.read(type, id)), randomUUID())
+      )
+      return {
+        contents: [{ uri, mimeType: "application/fhir+json", text: JSON.stringify(resource) }]
+      }
+    } catch (cause) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        `read ${uri} failed: ${cause instanceof Error ? cause.message : "unknown cause"}`
+      )
+    }
+  })
+
+  server.setRequestHandler(SubscribeRequestSchema, async (request, extra) => {
+    own(extra.sessionId).subscribe(request.params.uri)
+    return {}
+  })
+
+  server.setRequestHandler(UnsubscribeRequestSchema, async (request, extra) => {
+    own(extra.sessionId).unsubscribe(request.params.uri)
+    return {}
   })
 
   const close = server.close.bind(server)
