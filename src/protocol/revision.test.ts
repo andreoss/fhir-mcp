@@ -24,13 +24,15 @@ describe("protocol revision", () => {
   })
 
   it("declares only capabilities that are served", () => {
-    expect(capabilities()).toEqual({ tools: { listChanged: false } })
+    expect(capabilities()).toEqual({
+      tools: { listChanged: false },
+      resources: { subscribe: true, listChanged: true },
+      logging: {}
+    })
   })
 
   it("declares no capability this build does not implement", () => {
     const declared = Object.keys(capabilities())
-    expect(declared).not.toContain("resources")
     expect(declared).not.toContain("prompts")
-    expect(declared).not.toContain("logging")
   })
 })

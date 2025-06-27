@@ -57,7 +57,11 @@ describe("handshake", () => {
 
   it("declares its capabilities and names itself in the same answer", async () => {
     const result = await initializeWith(PINNED_REVISION)
-    expect(result["capabilities"]).toEqual({ tools: { listChanged: false } })
+    expect(result["capabilities"]).toEqual({
+      tools: { listChanged: false },
+      resources: { subscribe: true, listChanged: true },
+      logging: {}
+    })
     expect((result["serverInfo"] as { name: string }).name).toBe("fhir-mcp")
   })
 })

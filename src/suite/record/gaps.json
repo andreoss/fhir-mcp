@@ -43,6 +43,7 @@
     "src/compartment/grant.ts",
     "src/compartment/search.ts",
     "src/config/config.ts",
+    "src/config/secrets.ts",
     "src/conformance/capability.ts",
     "src/conformance/operations.ts",
     "src/conformance/smart.ts",
@@ -170,7 +171,7 @@
     "src/versions/source.ts",
     "src/versions/version.ts"
   ],
-  "tests": 154,
+  "tests": 160,
   "tested": [
     "src/agent/audit.ts",
     "src/agent/chunk.ts",
@@ -211,6 +212,7 @@
     "src/compartment/grant.ts",
     "src/compartment/search.ts",
     "src/config/config.ts",
+    "src/config/secrets.ts",
     "src/conformance/capability.ts",
     "src/conformance/operations.ts",
     "src/conformance/smart.ts",
@@ -346,6 +348,11 @@
   ],
   "gaps": [
     {
+      "path": "src/agent/elements.ts",
+      "reason": "unnamed",
+      "name": "missingIn"
+    },
+    {
       "path": "src/agent/params.ts",
       "reason": "unnamed",
       "name": "OperationName"
@@ -464,6 +471,16 @@
       "name": "ConfigError"
     },
     {
+      "path": "src/config/secrets.ts",
+      "reason": "unnamed",
+      "name": "PREFIX"
+    },
+    {
+      "path": "src/config/secrets.ts",
+      "reason": "unnamed",
+      "name": "SECRET_KEY_ENV"
+    },
+    {
       "path": "src/emr/adapter.ts",
       "reason": "unnamed",
       "name": "bearerCredit"
@@ -556,6 +573,21 @@
       "path": "src/host/main.ts",
       "reason": "unnamed",
       "name": "Unserved"
+    },
+    {
+      "path": "src/host/wiring.ts",
+      "reason": "unnamed",
+      "name": "boundOf"
+    },
+    {
+      "path": "src/host/wiring.ts",
+      "reason": "unnamed",
+      "name": "timeNow"
+    },
+    {
+      "path": "src/host/wiring.ts",
+      "reason": "unnamed",
+      "name": "postOf"
     },
     {
       "path": "src/jobs/queue.ts",
