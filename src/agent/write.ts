@@ -18,6 +18,7 @@ import type { Failure, OperationOutcome } from "../core/outcome.js"
 import { check, outcome } from "../model/validate.js"
 import { record } from "./audit.js"
 import type { Entry } from "./audit.js"
+import { WRITE_RULES } from "./rules.js"
 import type { ToolAnnotations, ToolResult, ToolSpec } from "./tools.js"
 
 export interface Capabilities {
@@ -128,7 +129,8 @@ const versionProperty = {
 export const writeTools: ReadonlyArray<ToolSpec> = [
   {
     name: "create",
-    description: "Store a new resource, optionally only when criteria select none.",
+    description:
+      "Store a new resource, optionally only when criteria select none. " + WRITE_RULES,
     inputSchema: {
       type: "object",
       properties: {
@@ -143,7 +145,8 @@ export const writeTools: ReadonlyArray<ToolSpec> = [
   },
   {
     name: "update",
-    description: "Replace one resource with the body given, creating it when absent.",
+    description:
+      "Replace one resource with the body given, creating it when absent. " + WRITE_RULES,
     inputSchema: {
       type: "object",
       properties: {
@@ -159,7 +162,8 @@ export const writeTools: ReadonlyArray<ToolSpec> = [
   },
   {
     name: "delete",
-    description: "Remove one resource, by id or by criteria that select one.",
+    description:
+      "Remove one resource, by id or by criteria that select one. " + WRITE_RULES,
     inputSchema: {
       type: "object",
       properties: {
@@ -174,7 +178,8 @@ export const writeTools: ReadonlyArray<ToolSpec> = [
   },
   {
     name: "patch",
-    description: "Apply a patch document to one resource, all of it or none.",
+    description:
+      "Apply a patch document to one resource, all of it or none. " + WRITE_RULES,
     inputSchema: {
       type: "object",
       properties: {

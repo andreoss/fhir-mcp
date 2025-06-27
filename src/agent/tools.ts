@@ -4,6 +4,7 @@ import type { Bundle, FhirResource } from "../core/engine.js"
 import { Rejected, Unavailable, toOutcome } from "../core/outcome.js"
 import type { Failure, OperationOutcome } from "../core/outcome.js"
 import { issue, redeem } from "./cursor.js"
+import { READ_RULES } from "./rules.js"
 import { keep, missing, missingIn } from "./elements.js"
 import { CurrentSession, Limiter, limited } from "./limit.js"
 import type { Admission } from "./limit.js"
@@ -132,7 +133,8 @@ export const tools: ReadonlyArray<ToolSpec> = [
     name: "read",
     description:
       "Retrieve one resource by type and id, or invoke an operation on it. " +
-      "Call capabilities first to learn which resource types the server serves.",
+      "Call capabilities first to learn which resource types the server serves. " +
+      READ_RULES,
     inputSchema: {
       type: "object",
       properties: {
@@ -152,7 +154,8 @@ export const tools: ReadonlyArray<ToolSpec> = [
     description:
       "Search one resource type, or invoke an operation on the type. " +
       "Call capabilities first to learn which resource types are served and " +
-      "the search parameters each accepts.",
+      "the search parameters each accepts. " +
+      READ_RULES,
     inputSchema: {
       type: "object",
       properties: {
@@ -169,7 +172,8 @@ export const tools: ReadonlyArray<ToolSpec> = [
   },
   {
     name: "capabilities",
-    description: "Report the resource types served, their parameters and operations.",
+    description:
+      "Report the resource types served, their parameters and operations. " + READ_RULES,
     inputSchema: {
       type: "object",
       properties: { type: { type: "string", description: "Resource type name." } },
