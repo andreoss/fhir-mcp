@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { SUPPORTED_PROTOCOL_VERSIONS } from "@modelcontextprotocol/sdk/types.js"
 import { PINNED_REVISION, capabilities, negotiate } from "./revision.js"
+import { SERVED } from "./server.js"
 
 describe("protocol revision", () => {
   it("is pinned to the revision the documents name", () => {
@@ -27,12 +28,14 @@ describe("protocol revision", () => {
     expect(capabilities()).toEqual({
       tools: { listChanged: false },
       resources: { subscribe: true, listChanged: true },
+      prompts: { listChanged: false },
+      completions: {},
       logging: {}
     })
   })
 
   it("declares no capability this build does not implement", () => {
     const declared = Object.keys(capabilities())
-    expect(declared).not.toContain("prompts")
+    expect([...declared].sort()).toEqual([...SERVED].sort())
   })
 })

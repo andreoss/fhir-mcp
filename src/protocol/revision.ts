@@ -13,11 +13,15 @@ export const negotiate = (asked: string | undefined): Negotiated => ({
 export interface Capabilities {
   readonly tools: { readonly listChanged: boolean }
   readonly resources: { readonly subscribe: boolean; readonly listChanged: boolean }
+  readonly prompts: { readonly listChanged: boolean }
+  readonly completions: Record<string, never>
   readonly logging: Record<string, never>
 }
 
 export const capabilities = (): Capabilities => ({
   tools: { listChanged: false },
   resources: { subscribe: true, listChanged: true },
+  prompts: { listChanged: false },
+  completions: {},
   logging: {}
 })

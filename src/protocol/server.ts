@@ -12,6 +12,9 @@ import {
   ListToolsRequestSchema,
   McpError,
   ReadResourceRequestSchema,
+  CompleteRequestSchema,
+  GetPromptRequestSchema,
+  ListPromptsRequestSchema,
   SetLevelRequestSchema,
   SubscribeRequestSchema,
   UnsubscribeRequestSchema
@@ -31,9 +34,18 @@ import { paginate } from "./cursor.js"
 import { TEMPLATES, address, uriOf } from "./resources.js"
 import type { ResourceEntry } from "./resources.js"
 import { Session } from "./session.js"
+import { completeArgument, render, workflows } from "./prompts.js"
 import { INSTRUCTIONS } from "./instructions.js"
 
 const writeNames = new Set(writeTools.map((tool) => tool.name))
+
+export const SERVED: ReadonlyArray<string> = [
+  "tools",
+  "resources",
+  "prompts",
+  "completions",
+  "logging"
+]
 
 const annotationsOf = (tool: ToolSpec) => {
   const destructive = tool.annotations.destructiveHint
@@ -217,6 +229,47 @@ export const build = (
       })
     }
     return { content, isError: result.isError }
+  })
+
+  server.setRequestHandler(ListPromptsRequestSchema, async () => ({
+    prompts: workflows.map((one) => ({
+      name: one.name,
+      description: one.description,
+      arguments: one.arguments.map((argument) => ({
+        name: argument.name,
+        description: argument.description,
+        required: argument.required === true
+      }))
+    }))
+  }))
+
+  server.setRequestHandler(GetPromptRequestSchema, async (request) => {
+    const given: Record<string, string> = {}
+    for (const [key, value] of Object.entries(request.params.arguments ?? {})) {
+      if (typeof value === "string") given[key] = value
+    }
+    const rendered = render({ name: request.params.name, args: given })
+    if (rendered === undefined) {
+      throw new McpError(ErrorCode.InvalidParams, `prompt not rendered: ${request.params.name}`)
+    }
+    return { messages: rendered }
+  })
+
+  server.setRequestHandler(CompleteRequestSchema, async (request) => {
+    const ref = request.params.ref
+    const asked = request.params.argument
+    if (ref.type !== "ref/prompt") return { completion: { values: [] } }
+    const types = await runtime.runPromise(
+      Effect.flatMap(FhirEngine, (held) => held.resourceTypes())
+    )
+    const values = completeArgument({
+      name: ref.name,
+      argument: asked.name,
+      value: asked.value,
+      tools: [...offeredNames],
+      types: [...types]
+    })
+    return { completion: { values: [...values], total: values.length, hasMore: false } }
   })
 
   server.setRequestHandler(SetLevelRequestSchema, async (request, extra) => {

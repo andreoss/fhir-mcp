@@ -60,6 +60,8 @@ describe("handshake", () => {
     expect(result["capabilities"]).toEqual({
       tools: { listChanged: false },
       resources: { subscribe: true, listChanged: true },
+      prompts: { listChanged: false },
+      completions: {},
       logging: {}
     })
     expect((result["serverInfo"] as { name: string }).name).toBe("fhir-mcp")
