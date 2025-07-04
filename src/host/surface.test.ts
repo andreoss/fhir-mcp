@@ -17,7 +17,8 @@ const quietly = async <A>(use: () => Promise<A>): Promise<A> => {
 
 const offered = async (env: Record<string, string | undefined>) =>
   quietly(async () => {
-    const server = await Effect.runPromise(Effect.scoped(start(env)))
+    const started = await Effect.runPromise(Effect.scoped(start(env)))
+    const server = started.server
     const list = (server as unknown as {
       _requestHandlers: Map<
         string,
@@ -103,12 +104,12 @@ const inSession = <A>(
   quietly(() =>
     Effect.runPromise(
       Effect.scoped(
-        Effect.flatMap(start(env), (server) =>
+        Effect.flatMap(start(env), (running) =>
           Effect.promise(async () => {
             try {
-              return await use(server)
+              return await use(running.server)
             } finally {
-              await server.close()
+              await running.server.close()
             }
           })
         )
