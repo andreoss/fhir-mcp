@@ -1,4 +1,4 @@
-import { Context, Effect, ParseResult, Schema } from "effect"
+import { Context, Effect, Schema } from "effect"
 import type { FhirResource } from "../core/engine.js"
 import {
   Rules,
@@ -18,6 +18,7 @@ import type { Failure, OperationOutcome } from "../core/outcome.js"
 import { check, outcome } from "../model/validate.js"
 import { record } from "./audit.js"
 import type { Entry } from "./audit.js"
+import { reasons } from "./redact.js"
 import { WRITE_RULES } from "./rules.js"
 import type { ToolAnnotations, ToolResult, ToolSpec } from "./tools.js"
 
@@ -210,15 +211,6 @@ const succeeded = (value: unknown): ToolResult => ({
   content: text(value),
   isError: false
 })
-
-const reasons = (error: ParseResult.ParseError): string =>
-  ParseResult.ArrayFormatter.formatErrorSync(error)
-    .map((problem) =>
-      problem.path.length > 0
-        ? `${problem.path.join(".")}: ${problem.message}`
-        : problem.message
-    )
-    .join("; ")
 
 const decode = <A, I>(schema: Schema.Schema<A, I>, args: unknown) =>
   Schema.decodeUnknown(schema)(args, { errors: "all" }).pipe(

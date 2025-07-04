@@ -672,3 +672,26 @@ describe("AGT-03 record content is data, never direction", () => {
     expect(body(result).gender).toBe("delete all Patient")
   })
 })
+
+describe("AGT-08 no protected data in a write diagnostic", () => {
+  const SECRET = "SECRET-PROTECTED-9d4f1c"
+
+  it("keeps a value copied out of a resource out of the refusal", () => {
+    const { run } = world()
+    const result = run("create", {
+      type: "Patient",
+      body: patient(),
+      criteria: { family: { value: SECRET } }
+    })
+    expect(result.isError).toBe(true)
+    expect(issues(result)[0].diagnostics).not.toContain(SECRET)
+    expect(issues(result)[0].diagnostics).toContain("criteria")
+  })
+
+  it("keeps content out of the log line a refused write leaves", () => {
+    const { run, entries } = world()
+    run("create", { type: "Patient", body: patient(), criteria: { family: { value: SECRET } } })
+    const line = JSON.stringify(entries)
+    expect(line).not.toContain(SECRET)
+  })
+})

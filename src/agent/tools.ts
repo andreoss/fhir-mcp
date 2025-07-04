@@ -1,4 +1,4 @@
-import { Context, Duration, Effect, Option, ParseResult, Schema } from "effect"
+import { Context, Duration, Effect, Option, Schema } from "effect"
 import { FhirEngine } from "../core/engine.js"
 import type { Bundle, FhirResource } from "../core/engine.js"
 import { Rejected, Unavailable, toOutcome } from "../core/outcome.js"
@@ -10,6 +10,7 @@ import { CurrentSession, Limiter, limited } from "./limit.js"
 import type { Admission } from "./limit.js"
 import { OperationName, Parameters, flatten, named, refusal } from "./params.js"
 import type { Pair, Scope } from "./params.js"
+import { reasons } from "./redact.js"
 
 export interface ToolAnnotations {
   readonly readOnlyHint: boolean
@@ -218,13 +219,6 @@ const succeeded = (
   isError: false,
   ...(elided === undefined ? {} : { elided })
 })
-
-const reasons = (error: ParseResult.ParseError): string =>
-  ParseResult.ArrayFormatter.formatErrorSync(error)
-    .map((problem) =>
-      problem.path.length > 0 ? `${problem.path.join(".")}: ${problem.message}` : problem.message
-    )
-    .join("; ")
 
 const decode = <A, I>(schema: Schema.Schema<A, I>, args: unknown) =>
   Schema.decodeUnknown(schema)(args, { errors: "all" }).pipe(
