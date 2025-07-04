@@ -1,4 +1,5 @@
 import type { ToolSpec } from "../agent/tools.js"
+import type { SamplingUse } from "./sampling.js"
 
 export interface PromptArgument {
   readonly name: string
@@ -18,6 +19,7 @@ export interface Workflow {
   readonly arguments: ReadonlyArray<PromptArgument>
   readonly uses: ReadonlyArray<PromptUse>
   readonly script: ReadonlyArray<string>
+  readonly sampling?: SamplingUse
 }
 
 export const workflows: ReadonlyArray<Workflow> = [
@@ -60,6 +62,31 @@ export const workflows: ReadonlyArray<Workflow> = [
     script: [
       "note-summary-v1: call the summarize tool with type and id to draft the note.",
       "note-summary-v1: keep the summary to the record and name which model drafted it."
+    ]
+  },
+  {
+    name: "record-brief-v1",
+    description: "Draft a short brief of one record with the client's model.",
+    arguments: [
+      {
+        name: "type",
+        description: "Resource type name of the record.",
+        required: true,
+        domain: "types"
+      },
+      { name: "id", description: "Logical id of the record.", required: true },
+      { name: "focus", description: "What the brief should attend to." }
+    ],
+    uses: [{ tool: "read", arguments: ["type", "id"] }],
+    sampling: {
+      system:
+        "Draft clinical briefs from records only. State what the record does not say rather than guessing it.",
+      maxTokens: 512
+    },
+    script: [
+      "record-brief-v1 step 1: call the read tool with type and id to fetch the record.",
+      "record-brief-v1 step 2: ask the client's model for a short brief of the record.",
+      "record-brief-v1 step 3: say which sentences the model drafted and which the record carries."
     ]
   },
   {
