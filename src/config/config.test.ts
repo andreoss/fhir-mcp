@@ -138,6 +138,7 @@ describe("emr backend config", () => {
     const config = value(run({
       FHIR_EMR_BACKEND: "clinic-b",
       FHIR_EMR_BASE_URL: "https://emr.example/fhir",
+      FHIR_EMR_PROVIDER: "generic",
       FHIR_EMR_TIMEOUT_MS: "30000",
       FHIR_EMR_RETRY_AFTER_MS: "500",
       FHIR_EMR_AUTH_SCHEME: "bearer",
@@ -182,6 +183,70 @@ describe("emr backend config", () => {
     const high = value(run({ ...smart, FHIR_EMR_AUTH_REFRESH_MARGIN_MS: "300000" }))
     expect(low.emr?.auth).toMatchObject({ refreshMarginMs: 10000 })
     expect(high.emr?.auth).toMatchObject({ refreshMarginMs: 300000 })
+  })
+
+  const without = (...keys: ReadonlyArray<string>): Record<string, string> => {
+    const rest: Record<string, string> = { ...smart }
+    for (const key of keys) delete rest[key]
+    return rest
+  }
+
+  it("refuses a backend with no base url, naming the key and the field", () => {
+    const error = failure(run(without("FHIR_EMR_BASE_URL")))
+    expect(error.problems.join(" ")).toContain("FHIR_EMR_BASE_URL")
+    expect(error.problems.join(" ")).toContain("baseUrl must be set")
+  })
+
+  it("names every blank smart field at once", () => {
+    const error = failure(
+      run(
+        without(
+          "FHIR_EMR_AUTH_TOKEN_URL",
+          "FHIR_EMR_AUTH_CLIENT_ID",
+          "FHIR_EMR_AUTH_KID",
+          "FHIR_EMR_AUTH_KEY"
+        )
+      )
+    )
+    const message = error.problems.join(" ")
+    expect(message).toContain("FHIR_EMR_AUTH_TOKEN_URL")
+    expect(message).toContain("FHIR_EMR_AUTH_CLIENT_ID")
+    expect(message).toContain("FHIR_EMR_AUTH_KID")
+    expect(message).toContain("FHIR_EMR_AUTH_KEY")
+    expect(message).toContain("clinic-a")
+  })
+
+  it("refuses a non-positive timeout, naming the key and the value", () => {
+    for (const value of ["0", "-1"]) {
+      const error = failure(run({ ...smart, FHIR_EMR_TIMEOUT_MS: value }))
+      const message = error.problems.join(" ")
+      expect(message).toContain("FHIR_EMR_TIMEOUT_MS")
+      expect(message).toContain("greater than zero")
+      expect(message).toContain(value)
+    }
+  })
+
+  it("refuses a non-positive retry delay", () => {
+    const error = failure(run({ ...smart, FHIR_EMR_RETRY_AFTER_MS: "0" }))
+    expect(error.problems.join(" ")).toContain("FHIR_EMR_RETRY_AFTER_MS")
+  })
+
+  it("refuses an empty backend name", () => {
+    const error = failure(run({ ...smart, FHIR_EMR_BACKEND: "" }))
+    expect(error.problems.join(" ")).toContain("FHIR_EMR_BACKEND")
+    expect(error.problems.join(" ")).toContain("name must be set")
+  })
+
+  it("refuses a blank auth scheme instead of defaulting to none", () => {
+    const error = failure(run({ ...smart, FHIR_EMR_AUTH_SCHEME: "  " }))
+    const message = error.problems.join(" ")
+    expect(message).toContain("FHIR_EMR_AUTH_SCHEME")
+    expect(message).toContain("auth.scheme must be set")
+  })
+
+  it("refuses a backend with no provider named", () => {
+    const error = failure(run(without("FHIR_EMR_PROVIDER")))
+    expect(error.problems.join(" ")).toContain("FHIR_EMR_PROVIDER")
   })
 
   it("decrypts a sealed secret with the key from the environment", () => {
