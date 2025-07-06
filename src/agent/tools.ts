@@ -1,6 +1,6 @@
-import { Context, Duration, Effect, Option, Schema } from "effect"
+import { Context, Duration, Effect, Either, Option, Schema } from "effect"
 import { FhirEngine } from "../core/engine.js"
-import type { Bundle, FhirResource } from "../core/engine.js"
+import type { Bundle, Engine, FhirResource } from "../core/engine.js"
 import { Rejected, Unavailable, toOutcome } from "../core/outcome.js"
 import type { Failure, OperationOutcome } from "../core/outcome.js"
 import { issue, redeem } from "./cursor.js"
@@ -363,12 +363,22 @@ const searchTool = (args: unknown) =>
       : succeeded(bundle, undefined, gaps)
   })
 
+const declaredFor = (engine: Engine, type: string) =>
+  Effect.map(Effect.either(engine.searchParameters(type)), (found) => ({
+    type,
+    parameters: Either.isRight(found) ? found.right : [],
+    operations: named()
+  }))
+
 const capabilitiesTool = (args: unknown) =>
   Effect.gen(function* () {
     const decoded = yield* decode(CapabilitiesArgs, args)
     const engine = yield* FhirEngine
     const resourceTypes = yield* engine.resourceTypes()
-    if (decoded.type === undefined) return succeeded({ resourceTypes })
+    if (decoded.type === undefined) {
+      const served = yield* Effect.forEach(resourceTypes, (type) => declaredFor(engine, type))
+      return succeeded({ resourceTypes, served })
+    }
     const parameters = yield* engine.searchParameters(decoded.type)
     return succeeded({ resourceTypes, type: decoded.type, parameters, operations: named() })
   })
