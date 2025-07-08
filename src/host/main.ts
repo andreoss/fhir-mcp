@@ -5,10 +5,13 @@ import { ConfigError, load } from "../config/config.js"
 import { build, serveOverStdio } from "../protocol/server.js"
 import { bridged } from "../protocol/bridge.js"
 import { serve } from "../protocol/http.js"
-import type { Endpoint, TransportError } from "../protocol/http.js"
+import type { Endpoint, Options, TransportError } from "../protocol/http.js"
 import { wiring } from "./compose.js"
+import { asConfigured, modeOf, terminated } from "./tls.js"
 
-export type Mode = "stdio" | "http"
+import type { Mode } from "./tls.js"
+
+export type { Mode } from "./tls.js"
 
 export interface Running {
   readonly mode: Mode
@@ -20,21 +23,25 @@ export const start = (
   env: Record<string, string | undefined>
 ): Effect.Effect<Running, ConfigError | TransportError | Error, Scope.Scope> =>
   Effect.gen(function* () {
-    const config = yield* load(env)
+    const mode = modeOf(env)
+    const config = yield* load(asConfigured(env, mode))
     const context = yield* Layer.build(Layer.orDie(wiring(config)))
     const all = Layer.succeedContext(context)
-    if (config.transport === "stdio") {
+    if (mode === "stdio") {
       const server = yield* serveOverStdio(all, config.allowWrite ? all : undefined, all)
       yield* Effect.addFinalizer(() => Effect.promise(() => server.close()))
-      return { mode: "stdio", server, endpoint: undefined }
+      return { mode, server, endpoint: undefined }
     }
     const server = build(all, config.allowWrite ? all : undefined, all)
     yield* Effect.addFinalizer(() => Effect.promise(() => server.close()))
     const bridge = yield* bridged(server)
-    const endpoint = yield* serve(config, bridge.handler)
+    const options: Options = { deletable: true }
+    const secured: Options =
+      mode === "https" ? { ...options, secure: yield* terminated(env) } : options
+    const endpoint = yield* serve(config, bridge.handler, secured)
     bridge.attach(endpoint)
     yield* Effect.addFinalizer(() => endpoint.close)
-    return { mode: "http", server, endpoint }
+    return { mode, server, endpoint }
   })
 
 export const main = (): Promise<void> =>
