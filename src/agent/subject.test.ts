@@ -7,7 +7,7 @@ import { member, restricted } from "../compartment/filter.js"
 import type { Limit } from "../compartment/filter.js"
 import { parse } from "../search/parse.js"
 import type { Query } from "../search/parse.js"
-import { CurrentSubject, compartmentOf, known, limitsOf, named, scopeOf } from "./subject.js"
+import { CurrentSubject, compartmentOf, known, labelled, limitsOf, scopeOf } from "./subject.js"
 import type { Subject } from "./subject.js"
 
 const patient: Subject = { id: "p1", kind: "patient" }
@@ -21,7 +21,7 @@ describe("AGT-12 the authenticated subject is knowable", () => {
   it("names the subject the call was made as", () => {
     const found = run(Effect.provideService(known, CurrentSubject, patient))
     expect(found).toEqual(patient)
-    expect(named(found)).toBe("patient:p1")
+    expect(labelled(found)).toBe("patient:p1")
   })
 
   it("says the subject is anonymous when no subject was authenticated", () => {
@@ -34,7 +34,7 @@ describe("AGT-12 the authenticated subject is knowable", () => {
     })
     const found = run(Effect.provideService(effect, CurrentSubject, clinician))
     expect(found.id).toBe("u1")
-    expect(named(found)).toBe("user:u1")
+    expect(labelled(found)).toBe("user:u1")
   })
 })
 

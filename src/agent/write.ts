@@ -16,8 +16,7 @@ import type { Criteria } from "../core/interactions.js"
 import { Forbidden, Rejected, toOutcome } from "../core/outcome.js"
 import type { Failure, OperationOutcome } from "../core/outcome.js"
 import { check, outcome } from "../model/validate.js"
-import { record } from "./audit.js"
-import type { Entry } from "./audit.js"
+import { Journal, record, verdict } from "./audit.js"
 import { reasons } from "./redact.js"
 import { WRITE_RULES } from "./rules.js"
 import type { ToolAnnotations, ToolResult, ToolSpec } from "./tools.js"
@@ -30,11 +29,8 @@ export interface Capabilities {
 
 export class Grant extends Context.Tag("AgentWriteGrant")<Grant, Capabilities>() {}
 
-export interface Ledger {
-  readonly note: (entry: Entry) => Effect.Effect<void>
-}
-
-export class Journal extends Context.Tag("AgentWriteJournal")<Journal, Ledger>() {}
+export { Journal } from "./audit.js"
+export type { Ledger } from "./audit.js"
 
 type Broken = Failure | OperationOutcome
 
@@ -303,11 +299,6 @@ const pick = (name: string): Tool | undefined =>
 const outcomeOf = (broken: Broken): OperationOutcome =>
   "resourceType" in broken ? broken : toOutcome(broken)
 
-const REFUSALS = new Set(["invalid", "forbidden", "conflict"])
-
-const verdictOf = (found: OperationOutcome): Verdict =>
-  found.issue.some((one) => REFUSALS.has(one.code)) ? "refused" : "failed"
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
@@ -363,7 +354,7 @@ export const callWrite = (
       })),
       Effect.catchAll((broken) => {
         const found = outcomeOf(broken)
-        return Effect.succeed({ result: failed(found), verdict: verdictOf(found) })
+        return Effect.succeed({ result: failed(found), verdict: verdict(found) })
       })
     )
     yield* tell(answer.verdict)
