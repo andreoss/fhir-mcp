@@ -37,6 +37,7 @@ import { Session } from "./session.js"
 import { briefed, draft } from "./sampling.js"
 import { completeArgument, render, workflows } from "./prompts.js"
 import { INSTRUCTIONS } from "./instructions.js"
+import { NAME, VERSION } from "./version.js"
 
 const writeNames = new Set(writeTools.map((tool) => tool.name))
 
@@ -57,10 +58,6 @@ const annotationsOf = (tool: ToolSpec) => {
     openWorldHint: tool.annotations.openWorldHint
   }
 }
-
-const NAME = "fhir-mcp"
-
-const VERSION = "0.0.0"
 
 const REPORT = "capabilities"
 
