@@ -16,7 +16,7 @@ import type { Criteria } from "../core/interactions.js"
 import { Forbidden, Rejected, toOutcome } from "../core/outcome.js"
 import type { Failure, OperationOutcome } from "../core/outcome.js"
 import { check, outcome } from "../model/validate.js"
-import { Journal, record, verdict } from "./audit.js"
+import { Journal, record, touched, verdict } from "./audit.js"
 import { reasons } from "./redact.js"
 import { WRITE_RULES } from "./rules.js"
 import type { ToolAnnotations, ToolResult, ToolSpec } from "./tools.js"
@@ -37,6 +37,7 @@ type Broken = Failure | OperationOutcome
 type Verdict = "success" | "refused" | "failed"
 
 const TYPE = /^[A-Z][A-Za-z]{1,63}$/
+
 const ID = /^[A-Za-z0-9\-.]{1,64}$/
 
 const ResourceType = Schema.String.pipe(Schema.pattern(TYPE)).annotations({
@@ -299,26 +300,7 @@ const pick = (name: string): Tool | undefined =>
 const outcomeOf = (broken: Broken): OperationOutcome =>
   "resourceType" in broken ? broken : toOutcome(broken)
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
 
-interface Facts {
-  readonly type?: string
-  readonly id?: string
-  readonly parameters?: ReadonlyArray<string>
-}
-
-const facts = (args: unknown): Facts => {
-  if (!isRecord(args)) return {}
-  const type = args["type"]
-  const id = args["id"]
-  const where = args["criteria"]
-  return {
-    ...(typeof type === "string" && TYPE.test(type) ? { type } : {}),
-    ...(typeof id === "string" && ID.test(id) ? { id } : {}),
-    ...(isRecord(where) ? { parameters: Object.keys(where) } : {})
-  }
-}
 
 export const callWrite = (
   name: string,
@@ -333,7 +315,7 @@ export const callWrite = (
           correlation: grant.correlation,
           tool: name,
           outcome: verdict,
-          ...facts(args),
+          ...touched(args),
           ...(grant.token === undefined ? {} : { token: grant.token })
         })
       )

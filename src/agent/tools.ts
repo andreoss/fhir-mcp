@@ -6,7 +6,7 @@ import type { Failure, OperationOutcome } from "../core/outcome.js"
 import { Correlated } from "../obs/correlation.js"
 import { Grant } from "./write.js"
 import type { Capabilities } from "./write.js"
-import { Journal, NONE, interactionOf, record, verdict } from "./audit.js"
+import { Journal, NONE, interactionOf, record, touched, verdict } from "./audit.js"
 import { CurrentSubject, labelled } from "./subject.js"
 import { issue, redeem } from "./cursor.js"
 import { READ_RULES } from "./rules.js"
@@ -443,6 +443,7 @@ export const call = (name: string, args: unknown): Effect.Effect<ToolResult, nev
               tool: name,
               interaction: interactionOf(args) ?? name,
               outcome,
+              ...touched(args),
               ...(Option.isSome(subject) ? { subject: labelled(subject.value) } : {}),
               ...(token === undefined ? {} : { token })
             })
