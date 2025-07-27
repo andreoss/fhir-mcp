@@ -33,6 +33,7 @@ const config = (emr: BackendConfig | undefined): Config => ({
   scopes: [],
   terminologyDir: undefined,
   logLevel: "info",
+  trail: { path: ":memory:", key: "", retentionMs: 0 },
   ...(emr === undefined ? {} : { emr })
 })
 

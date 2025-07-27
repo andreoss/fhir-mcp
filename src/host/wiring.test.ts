@@ -15,7 +15,8 @@ const config = (scopes: ReadonlyArray<string>): Config => ({
   allowWrite: false,
   scopes,
   terminologyDir: undefined,
-  logLevel: "info"
+  logLevel: "info",
+  trail: { path: ":memory:", key: "", retentionMs: 0 }
 })
 
 const tables = async (connection: never): Promise<ReadonlyArray<string>> => {

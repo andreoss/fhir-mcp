@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest"
 import { Context, Effect, Layer } from "effect"
-import { Grant } from "../agent/write.js"
+import { mkdtempSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { Grant, Journal } from "../agent/write.js"
 import { FhirEngine } from "../core/engine.js"
 import { Versions } from "../core/interactions.js"
 import { Metrics } from "../obs/metrics.js"
 import { TerminologyPort } from "../terminology/port.js"
-import { grantOf, journalToErrors, wiring } from "./compose.js"
+import { open } from "../trail/store.js"
+import { grantOf, journalToErrors, trailed, wiring } from "./compose.js"
 import type { Wiring } from "./compose.js"
 import type { Config } from "../config/config.js"
 
@@ -16,7 +20,8 @@ const config = (allowWrite: boolean): Config => ({
   scopes: [],
   allowWrite,
   terminologyDir: undefined,
-  logLevel: "info"
+  logLevel: "info",
+  trail: { path: ":memory:", key: "", retentionMs: 0 }
 })
 
 const grantIn = (allowWrite: boolean) =>
@@ -76,6 +81,59 @@ describe("composition", () => {
       Effect.scoped(Layer.build(Layer.orDie(wiring(config(false)))))
     )
     expect(built).toBeDefined()
+  })
+
+  it("holds a run of audit entries in a durable trail that verifies", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "trail-")), "trail.duckdb")
+    const held: Config = {
+      ...config(false),
+      trail: { path, key: "k-1", retentionMs: 0 }
+    }
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.flatMap(Layer.build(Layer.orDie(trailed(held))), (context) =>
+          Context.get(context, Journal).note({
+            at: "t",
+            correlation: "c1",
+            actor: "anonymous",
+            tool: "create",
+            interaction: "create",
+            outcome: "success",
+            type: "Patient",
+            id: "p1"
+          })
+        )
+      )
+    )
+    const report = await Effect.runPromise(
+      Effect.scoped(Effect.flatMap(open(path), (trail) => trail.verify("k-1")))
+    )
+    expect(report.ok).toBe(true)
+    expect(report.checked).toBe(1)
+    expect(report.head).toBe(1)
+  })
+
+  it("empties a durable trail of entries older than the retention it was given", async () => {
+    const path = join(mkdtempSync(join(tmpdir(), "trail-")), "trail.duckdb")
+    const first = await Effect.runPromise(
+      Effect.scoped(Effect.flatMap(open(path), (trail) => trail.append({
+        actor: "anonymous",
+        action: "create",
+        resource: "Patient/p1",
+        outcome: "success",
+        correlation: "c0"
+      })))
+    )
+    expect(first.seq).toBe(1)
+    const held: Config = {
+      ...config(false),
+      trail: { path, key: "k-1", retentionMs: 1 }
+    }
+    await Effect.runPromise(Effect.scoped(Layer.build(Layer.orDie(trailed(held)))))
+    const lines = await Effect.runPromise(
+      Effect.scoped(Effect.flatMap(open(path), (trail) => trail.lines))
+    )
+    expect(lines).toEqual([])
   })
 })
 

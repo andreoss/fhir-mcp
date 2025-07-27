@@ -18,7 +18,8 @@ const config: Config = {
   allowWrite: false,
   scopes: [],
   terminologyDir: undefined,
-  logLevel: "info"
+  logLevel: "info",
+  trail: { path: ":memory:", key: "", retentionMs: 0 }
 }
 
 const engine: Layer.Layer<FhirEngine> = Layer.succeed(FhirEngine, {

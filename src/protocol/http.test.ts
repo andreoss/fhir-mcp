@@ -16,7 +16,8 @@ const config = (
   allowWrite: false,
   scopes: [],
   terminologyDir: undefined,
-  logLevel: "info"
+  logLevel: "info",
+  trail: { path: ":memory:", key: "", retentionMs: 0 }
 })
 
 const seen: Array<Incoming> = []
@@ -677,7 +678,8 @@ describe("streamable http transport", () => {
       allowWrite: false,
       scopes: [],
       terminologyDir: undefined,
-      logLevel: "info"
+      logLevel: "info",
+      trail: { path: ":memory:", key: "", retentionMs: 0 }
     }
     const exit = await Effect.runPromiseExit(serve(taken, handler))
     expect(exit._tag).toBe("Failure")
