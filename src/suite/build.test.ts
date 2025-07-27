@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { compiler, defaultEntry, ensure } from "./build.js"
+import { compiler, defaultEntry, ensure, termsEntry } from "./build.js"
 
 const scratch = () => mkdtemp(join(tmpdir(), "suite-build-"))
 
@@ -13,6 +13,14 @@ describe("build", () => {
 
   it("lets an environment point the suite at another build", () => {
     expect(defaultEntry({ FHIR_SUITE_ENTRY: "/other/cli.js" })).toBe("/other/cli.js")
+  })
+
+  it("names the built entry that carries the terminology of this build", () => {
+    expect(termsEntry({})).toMatch(/dist[/\\]suite[/\\]cli\.js$/)
+  })
+
+  it("lets an environment point the suite at another carrying build", () => {
+    expect(termsEntry({ FHIR_SUITE_TERMS_ENTRY: "/other/terms.js" })).toBe("/other/terms.js")
   })
 
   it("uses an entry that is already there without compiling", async () => {

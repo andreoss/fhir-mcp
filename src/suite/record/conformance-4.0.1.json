@@ -103,6 +103,10 @@
       "met": true
     },
     {
+      "id": "tool:lookup",
+      "met": true
+    },
+    {
       "id": "type:Condition",
       "met": true
     },

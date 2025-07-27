@@ -146,6 +146,8 @@
     "src/store/versioned.ts",
     "src/suite/build.ts",
     "src/suite/checks.ts",
+    "src/suite/cli.ts",
+    "src/suite/exercise.ts",
     "src/suite/external.ts",
     "src/suite/gaps.ts",
     "src/suite/harness.ts",
@@ -180,7 +182,7 @@
     "src/versions/source.ts",
     "src/versions/version.ts"
   ],
-  "tests": 171,
+  "tests": 173,
   "tested": [
     "src/agent/audit.ts",
     "src/agent/chunk.ts",
@@ -307,6 +309,7 @@
     "src/store/versioned.ts",
     "src/suite/build.ts",
     "src/suite/checks.ts",
+    "src/suite/exercise.ts",
     "src/suite/external.ts",
     "src/suite/gaps.ts",
     "src/suite/harness.ts",
@@ -358,6 +361,7 @@
     "src/protocol/instructions.ts",
     "src/protocol/sampling.ts",
     "src/replace/fake.ts",
+    "src/suite/cli.ts",
     "src/terminology/port.ts",
     "src/tools/cli.ts",
     "src/trail/seal.ts",
@@ -795,6 +799,10 @@
       "path": "src/store/query.ts",
       "reason": "unnamed",
       "name": "INDEX_SQL"
+    },
+    {
+      "path": "src/suite/cli.ts",
+      "reason": "unreached"
     },
     {
       "path": "src/terminology/load.ts",

@@ -22,9 +22,16 @@ export interface Verdict {
   readonly met: boolean
 }
 
-export const checksOf = (found: CapabilityStatement): ReadonlyArray<Check> => {
+export const checksOf = (
+  found: CapabilityStatement,
+  offered: ReadonlyArray<string> = []
+): ReadonlyArray<Check> => {
   const made = new Map<string, Check>()
-  const tool = (id: string, name: string) => made.set(id, { id, kind: "tool", tool: name })
+  const covered = new Set<string>()
+  const tool = (id: string, name: string) => {
+    covered.add(name)
+    made.set(id, { id, kind: "tool", tool: name })
+  }
   for (const rest of found.rest) {
     for (const one of rest.interaction) {
       const provider = providerOf(one.code)
@@ -42,6 +49,10 @@ export const checksOf = (found: CapabilityStatement): ReadonlyArray<Check> => {
         made.set(named, { id: named, kind: "param", type: entry.type, param: param.name })
       }
     }
+  }
+  for (const name of offered) {
+    if (covered.has(name)) continue
+    made.set(`tool:${name}`, { id: `tool:${name}`, kind: "tool", tool: name })
   }
   return [...made.values()].sort((a, b) => a.id.localeCompare(b.id))
 }
