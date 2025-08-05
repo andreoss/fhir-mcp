@@ -619,6 +619,11 @@
       "reason": "unreached"
     },
     {
+      "path": "src/host/compose.ts",
+      "reason": "unnamed",
+      "name": "toErrors"
+    },
+    {
       "path": "src/host/health.ts",
       "reason": "unnamed",
       "name": "PROBE_TYPE"
@@ -647,6 +652,11 @@
       "path": "src/host/tls.ts",
       "reason": "unnamed",
       "name": "TlsError"
+    },
+    {
+      "path": "src/host/wiring.ts",
+      "reason": "unnamed",
+      "name": "jobbing"
     },
     {
       "path": "src/host/wiring.ts",
