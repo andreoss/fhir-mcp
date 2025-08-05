@@ -5,7 +5,7 @@ import type { Entry } from "../agent/audit.js"
 import type { Failure } from "../core/outcome.js"
 import type { Trail } from "./store.js"
 import { open } from "./store.js"
-import { addressed, asJournal, asLine } from "./ledger.js"
+import { addressed, asJournal, asLine, beside } from "./ledger.js"
 
 const entry = (over: Partial<Entry> = {}): Entry => ({
   at: "2026-01-01T00:00:00.000Z",
@@ -95,6 +95,22 @@ describe("an audit entry reaching the trail", () => {
       })
     )
     expect(kept).toHaveLength(1)
+  })
+
+  it("hands one entry to every ledger it stands beside", async () => {
+    const seen: Array<string> = []
+    const found = await withTrail((trail) =>
+      Effect.gen(function* () {
+        yield* beside([
+          { note: (one) => Effect.sync(() => { seen.push(`a:${one.correlation}`) }) },
+          asJournal(trail),
+          { note: (one) => Effect.sync(() => { seen.push(`b:${one.correlation}`) }) }
+        ]).note(entry())
+        return yield* trail.lines
+      })
+    )
+    expect(seen).toEqual(["a:c-1", "b:c-1"])
+    expect(found).toHaveLength(1)
   })
 
   it("exports every line it holds", async () => {
