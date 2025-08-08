@@ -98,7 +98,7 @@ describe("the engine the wiring binds", () => {
 
   beforeAll(async () => {
     connection = await opened()
-    held = await Effect.runPromise(startup(connection))
+    held = await Effect.runPromise(Effect.scoped(startup(connection)))
     await Effect.runPromise(put(held, patient("p1", "Vance")))
     await Effect.runPromise(put(held, patient("p2", "Stone")))
     await Effect.runPromise(put(held, observation("o1", "p1")))

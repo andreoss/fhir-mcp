@@ -6,6 +6,9 @@ import { join } from "node:path"
 import { Grant, Journal } from "../agent/write.js"
 import { FhirEngine } from "../core/engine.js"
 import { Versions } from "../core/interactions.js"
+import type { Failure } from "../core/outcome.js"
+import { Jobs } from "../jobs/service.js"
+import type { Status } from "../jobs/service.js"
 import { Metrics } from "../obs/metrics.js"
 import { TerminologyPort } from "../terminology/port.js"
 import { open } from "../trail/store.js"
@@ -154,6 +157,19 @@ const inside = <A>(
     ) as Effect.Effect<A>
   )
 
+const settled = (
+  desk: { readonly status: (id: string) => Effect.Effect<Status, Failure> },
+  id: string,
+  tries: number
+): Effect.Effect<Status, Failure> =>
+  Effect.gen(function* () {
+    const seen = yield* desk.status(id)
+    const open = seen.state === "queued" || seen.state === "running"
+    if (!open || tries === 0) return seen
+    yield* Effect.sleep("100 millis")
+    return yield* settled(desk, id, tries - 1)
+  })
+
 describe("what the composition root binds", () => {
   it("serves the engine that understands a modifier, not the store that cannot", async () => {
     const found = await inside(config(true), (context) =>
@@ -181,6 +197,35 @@ describe("what the composition root binds", () => {
         code: "a"
       }))
     expect(found._tag).toBe("Unsupplied")
+  })
+
+  it("serves a job desk that takes a submission and reports it back", async () => {
+    const seen = await inside(config(true), (context) =>
+      Effect.gen(function* () {
+        const desk = Context.get(context, Jobs)
+        const ticket = yield* desk.submit(
+          "reindex",
+          JSON.stringify({ type: "Patient" })
+        )
+        return { ticket, status: yield* desk.status(ticket.id) }
+      }))
+    expect(seen.ticket.location).toBe(`/jobs/${seen.status.id}`)
+    expect(seen.status.kind).toBe("reindex")
+    expect(seen.status.total).toBe(1)
+  })
+
+  it("runs a job submitted through the composition root to its end", async () => {
+    const seen = await inside(config(true), (context) =>
+      Effect.gen(function* () {
+        const desk = Context.get(context, Jobs)
+        const ticket = yield* desk.submit(
+          "reindex",
+          JSON.stringify({ type: "Patient" })
+        )
+        return yield* settled(desk, ticket.id, 60)
+      }))
+    expect(seen.state).toBe("done")
+    expect(seen.done).toBe(1)
   })
 
   it("supplies a meter so the served path is measured", async () => {

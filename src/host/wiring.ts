@@ -1,4 +1,5 @@
 import { Effect, Either } from "effect"
+import type { Scope } from "effect"
 import type { DuckDBConnection } from "@duckdb/node-api"
 import { createPrivateKey } from "node:crypto"
 import type { Config } from "../config/config.js"
@@ -12,6 +13,12 @@ import type { Restriction } from "../engine/restriction.js"
 import { engine as restricted } from "../engine/search.js"
 import type { Deps } from "../engine/search.js"
 import { registryOn } from "../params/registry.js"
+import { handlers } from "../bulk/bulk.js"
+import { depotOn } from "../bulk/depot.js"
+import { desk } from "../jobs/service.js"
+import type { Desk } from "../jobs/service.js"
+import { queueOn } from "../jobs/queue.js"
+import { start } from "../jobs/worker.js"
 import { ensure } from "../store/query.js"
 import { engineOn } from "../store/store.js"
 import type { Store } from "../store/store.js"
@@ -33,6 +40,7 @@ export interface Startup {
   readonly deps: Deps
   readonly store: Store
   readonly versions: VersionedStore
+  readonly jobs: Desk
 }
 
 export const restrictionOf = (config: Config): Restriction =>
@@ -53,13 +61,30 @@ export const started = (
       }
   })
 
+export const jobbing = (
+  connection: DuckDBConnection
+): Effect.Effect<Desk, Failure, Scope.Scope> =>
+  Effect.gen(function* () {
+    const queue = yield* queueOn(connection)
+    const depot = yield* depotOn(connection)
+    const registry = handlers(yield* versionedOn(connection), depot)
+    const worker = yield* start(queue, registry)
+    yield* Effect.addFinalizer(() => Effect.orDie(worker.stop))
+    return desk(queue, registry)
+  })
+
 export const startup = (
   connection: DuckDBConnection
-): Effect.Effect<Startup, Failure> =>
+): Effect.Effect<Startup, Failure, Scope.Scope> =>
   Effect.gen(function* () {
     const store = yield* engineOn(connection)
     const versions = yield* versionedOn(connection)
-    return { deps: yield* started(connection), store, versions: typed(connection, versions) }
+    return {
+      deps: yield* started(connection),
+      store,
+      versions: typed(connection, versions),
+      jobs: yield* jobbing(connection)
+    }
   })
 
 const reading = (
