@@ -4,6 +4,7 @@
     "src/agent/chunk.ts",
     "src/agent/cursor.ts",
     "src/agent/elements.ts",
+    "src/agent/jobs.ts",
     "src/agent/limit.ts",
     "src/agent/params.ts",
     "src/agent/redact.ts",
@@ -183,12 +184,13 @@
     "src/versions/source.ts",
     "src/versions/version.ts"
   ],
-  "tests": 174,
+  "tests": 176,
   "tested": [
     "src/agent/audit.ts",
     "src/agent/chunk.ts",
     "src/agent/cursor.ts",
     "src/agent/elements.ts",
+    "src/agent/jobs.ts",
     "src/agent/limit.ts",
     "src/agent/params.ts",
     "src/agent/redact.ts",

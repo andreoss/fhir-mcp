@@ -27,12 +27,13 @@ export const start = (
     const config = yield* load(asConfigured(env, mode))
     const context = yield* Layer.build(Layer.orDie(wiring(config)))
     const all = Layer.succeedContext(context)
+    const writes = config.allowWrite ? all : undefined
     if (mode === "stdio") {
-      const server = yield* serveOverStdio(all, config.allowWrite ? all : undefined, all)
+      const server = yield* serveOverStdio(all, writes, all, undefined, writes)
       yield* Effect.addFinalizer(() => Effect.promise(() => server.close()))
       return { mode, server, endpoint: undefined }
     }
-    const server = build(all, config.allowWrite ? all : undefined, all)
+    const server = build(all, writes, all, undefined, writes)
     yield* Effect.addFinalizer(() => Effect.promise(() => server.close()))
     const bridge = yield* bridged(server)
     const options: Options = { deletable: true }

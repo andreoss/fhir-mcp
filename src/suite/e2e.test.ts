@@ -46,6 +46,9 @@ describe("a writable build driven over stdio", () => {
       "read",
       "search",
       "capabilities",
+      "job-submit",
+      "job-status",
+      "job-cancel",
       "create",
       "update",
       "delete",
@@ -175,6 +178,41 @@ describe("a writable build driven over stdio", () => {
     expect(record(rest[0]?.["resource"])["id"]).toBe("o3")
   })
 
+  it("submits a job from the tool surface and polls it until it settles", async () => {
+    const submitted = await session.callTool("job-submit", {
+      kind: "reindex",
+      request: '{"type":"Patient"}'
+    })
+    if (submitted.kind !== "answered" || submitted.isError) {
+      throw new Error("job-submit was refused")
+    }
+    const ticket = record(submitted.body)
+    const id = String(ticket["id"])
+    expect(ticket["location"]).toBe(`/jobs/${id}`)
+    expect(ticket["retryAfter"]).toBeGreaterThan(0)
+
+    let state = ""
+    for (let attempt = 0; attempt < 60 && state !== "done" && state !== "failed"; attempt++) {
+      await new Promise((settled) => setTimeout(settled, 100))
+      const polled = await session.callTool("job-status", { id })
+      if (polled.kind !== "answered") throw new Error("job-status was refused")
+      state = String(record(polled.body)["state"])
+    }
+    expect(state).toBe("done")
+
+    const cancelled = await session.callTool("job-cancel", { id })
+    if (cancelled.kind !== "answered") throw new Error("job-cancel was refused")
+    expect(cancelled.isError).toBe(true)
+    expect(record(cancelled.body)["resourceType"]).toBe("OperationOutcome")
+  })
+
+  it("answers a job it was never given as an outcome, not a crash", async () => {
+    const called = await session.callTool("job-status", { id: "no-such-job" })
+    if (called.kind !== "answered") throw new Error("job-status was refused")
+    expect(called.isError).toBe(true)
+    expect(record(called.body)["resourceType"]).toBe("OperationOutcome")
+  })
+
   it("refuses an unknown tool as a protocol error, not as a result", async () => {
     const called = await session.callTool("explode", {})
     expect(called.kind).toBe("refused")
@@ -248,8 +286,14 @@ describe("an off the shelf client", () => {
     await client.connect(transport)
     expect(client.getServerVersion()?.name).toBe("fhir-mcp")
     expect(client.getServerCapabilities()).toEqual(capabilities())
-    const listed = await client.listTools()
-    expect(listed.tools.map((tool) => tool.name)).toContain("create")
+    const paged: Array<string> = []
+    let cursor: string | undefined
+    do {
+      const page = await client.listTools(cursor === undefined ? {} : { cursor })
+      paged.push(...page.tools.map((tool) => tool.name))
+      cursor = page.nextCursor
+    } while (cursor !== undefined)
+    expect(paged).toContain("create")
     const called = await client.callTool({
       name: "create",
       arguments: { type: "Patient", body: patient }
