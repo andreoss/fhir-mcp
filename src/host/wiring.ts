@@ -15,6 +15,7 @@ import type { Deps } from "../engine/search.js"
 import { registryOn } from "../params/registry.js"
 import { handlers } from "../bulk/bulk.js"
 import { depotOn } from "../bulk/depot.js"
+import type { Depot } from "../bulk/depot.js"
 import { desk } from "../jobs/service.js"
 import type { Desk } from "../jobs/service.js"
 import { queueOn } from "../jobs/queue.js"
@@ -40,6 +41,7 @@ export interface Startup {
   readonly deps: Deps
   readonly store: Store
   readonly versions: VersionedStore
+  readonly depot: Depot
   readonly jobs: Desk
 }
 
@@ -62,11 +64,11 @@ export const started = (
   })
 
 export const jobbing = (
-  connection: DuckDBConnection
+  connection: DuckDBConnection,
+  depot: Depot
 ): Effect.Effect<Desk, Failure, Scope.Scope> =>
   Effect.gen(function* () {
     const queue = yield* queueOn(connection)
-    const depot = yield* depotOn(connection)
     const registry = handlers(yield* versionedOn(connection), depot)
     const worker = yield* start(queue, registry)
     yield* Effect.addFinalizer(() => Effect.orDie(worker.stop))
@@ -79,11 +81,13 @@ export const startup = (
   Effect.gen(function* () {
     const store = yield* engineOn(connection)
     const versions = yield* versionedOn(connection)
+    const depot = yield* depotOn(connection)
     return {
       deps: yield* started(connection),
       store,
       versions: typed(connection, versions),
-      jobs: yield* jobbing(connection)
+      depot,
+      jobs: yield* jobbing(connection, depot)
     }
   })
 

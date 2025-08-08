@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 import { Effect, Layer } from "effect"
 import { Rejected } from "../core/outcome.js"
 import type { Failure } from "../core/outcome.js"
+import { DepotPort } from "../bulk/depot.js"
+import type { Depot, Fault, Sheet } from "../bulk/depot.js"
 import { Jobs } from "../jobs/service.js"
 import type { Desk, Status, Ticket } from "../jobs/service.js"
 import { Journal } from "./audit.js"
@@ -31,11 +33,43 @@ interface Seen {
   readonly notes: Array<Entry>
 }
 
+const depotOf = (
+  files: Readonly<Record<string, ReadonlyArray<string>>> = {},
+  faults: ReadonlyArray<Fault> = []
+): Depot => {
+  const held = new Map(Object.entries(files))
+  return {
+    put: (path, lines) =>
+      Effect.sync(() => {
+        held.set(path, lines)
+      }),
+    get: (path) => Effect.succeed(held.get(path) ?? []),
+    list: (prefix) =>
+      Effect.succeed(
+        [...held.entries()]
+          .filter(([path]) => path.startsWith(prefix))
+          .sort(([left], [right]) => (left < right ? -1 : 1))
+          .map(([path, lines]) => ({ path, rows: lines.length } satisfies Sheet))
+      ),
+    note: () => Effect.void,
+    noted: () => Effect.succeed(undefined),
+    mark: () => Effect.void,
+    marks: () => Effect.succeed([]),
+    fault: () => Effect.void,
+    faults: () => Effect.succeed(faults),
+    ids: () => Effect.succeed([]),
+    targets: () => Effect.succeed([]),
+    refresh: () => Effect.succeed(0)
+  } satisfies Depot
+}
+
 const faked = (
   seen: Seen,
-  over: Partial<Desk> = {}
-): Layer.Layer<Jobs | Journal> =>
-  Layer.merge(
+  over: Partial<Desk> = {},
+  depot: Depot = depotOf()
+): Layer.Layer<Jobs | Journal | DepotPort> =>
+  Layer.mergeAll(
+    Layer.succeed(DepotPort, depot),
     Layer.succeed(Jobs, {
       submit: (kind, request) => {
         seen.calls.push(`submit:${kind}:${request}`)
@@ -63,10 +97,11 @@ const answered = (
   seen: Seen,
   name: string,
   args: unknown,
-  over: Partial<Desk> = {}
+  over: Partial<Desk> = {},
+  depot?: Depot
 ): Promise<ToolResult> =>
   Effect.runPromise(
-    Effect.provide(callJob(name, args), faked(seen, over))
+    Effect.provide(callJob(name, args), faked(seen, over, depot ?? depotOf()))
   )
 
 const first = (result: ToolResult): Record<string, unknown> =>
@@ -77,7 +112,8 @@ describe("JOB-02 job tools on the served surface", () => {
     expect(jobTools.map((tool) => tool.name)).toEqual([
       "job-submit",
       "job-status",
-      "job-cancel"
+      "job-cancel",
+      "job-output"
     ])
   })
 
@@ -195,14 +231,149 @@ describe("JOB-02 job tools on the served surface", () => {
     const result = await Effect.runPromise(
       Effect.provide(
         callJob("job-status", { id: "j1" }),
-        Layer.succeed(Jobs, {
-          submit: () => Effect.succeed(TICKET),
-          status: () => Effect.succeed(STATUS),
-          cancel: () => Effect.void
-        } satisfies Desk)
+        Layer.merge(
+          Layer.succeed(DepotPort, depotOf()),
+          Layer.succeed(Jobs, {
+            submit: () => Effect.succeed(TICKET),
+            status: () => Effect.succeed(STATUS),
+            cancel: () => Effect.void
+          } satisfies Desk)
+        )
       )
     )
     expect(result.isError).toBe(false)
     expect(asked.calls).toEqual([])
+  })
+})
+
+describe("EXP-04 the output of a job on the served surface", () => {
+  const SHEET = "export/j1/Patient-0.ndjson"
+
+  const written = depotOf({
+    [SHEET]: ['{"resourceType":"Patient","id":"p1"}', '{"resourceType":"Patient","id":"p2"}']
+  })
+
+  it("names the sheets a job wrote with the rows each one holds", async () => {
+    const seen: Seen = { calls: [], notes: [] }
+    const result = await answered(seen, "job-output", { id: "j1" }, {}, written)
+    expect(result.isError).toBe(false)
+    const told = first(result)
+    expect(told["job"]).toBe("j1")
+    expect(told["state"]).toBe("queued")
+    expect(told["progress"]).toEqual({ total: 1, done: 0, failed: 0, pending: 1 })
+    expect(told["output"]).toEqual([{ path: SHEET, rows: 2 }])
+    expect(told["error"]).toBeUndefined()
+    expect(seen.calls).toEqual(["status:j1"])
+  })
+
+  it("reads the lines of one sheet a job wrote", async () => {
+    const seen: Seen = { calls: [], notes: [] }
+    const result = await answered(
+      seen,
+      "job-output",
+      { id: "j1", path: SHEET },
+      {},
+      written
+    )
+    expect(result.isError).toBe(false)
+    expect(first(result)["sheet"]).toEqual({
+      path: SHEET,
+      rows: 2,
+      returned: 2,
+      lines: ['{"resourceType":"Patient","id":"p1"}', '{"resourceType":"Patient","id":"p2"}']
+    })
+  })
+
+  it("reads at most the lines a caller asked for", async () => {
+    const many = depotOf({
+      [SHEET]: Array.from({ length: 5 }, (_one, at) => `line-${at}`)
+    })
+    const seen: Seen = { calls: [], notes: [] }
+    const result = await answered(
+      seen,
+      "job-output",
+      { id: "j1", path: SHEET, limit: 2 },
+      {},
+      many
+    )
+    expect(first(result)["sheet"]).toEqual({
+      path: SHEET,
+      rows: 5,
+      returned: 2,
+      lines: ["line-0", "line-1"]
+    })
+  })
+
+  it("refuses a limit above the bound it serves", async () => {
+    const seen: Seen = { calls: [], notes: [] }
+    const result = await answered(
+      seen,
+      "job-output",
+      { id: "j1", path: SHEET, limit: 5000 },
+      {},
+      written
+    )
+    expect(result.isError).toBe(true)
+    expect(first(result)["resourceType"]).toBe("OperationOutcome")
+    expect(JSON.stringify(result.content)).toContain("limit")
+  })
+
+  it("refuses a path the job did not write", async () => {
+    const seen: Seen = { calls: [], notes: [] }
+    const result = await answered(
+      seen,
+      "job-output",
+      { id: "j1", path: "export/j1/Observation-0.ndjson" },
+      {},
+      written
+    )
+    expect(result.isError).toBe(true)
+    expect(first(result)["resourceType"]).toBe("OperationOutcome")
+    expect(JSON.stringify(result.content)).toContain("no sheet")
+  })
+
+  it("names the failure file a job wrote and keeps it out of the output", async () => {
+    const seen: Seen = { calls: [], notes: [] }
+    const faulted = depotOf(
+      { [SHEET]: ["{}"] },
+      [{ job: "j1", unit: "u1", type: "Patient", id: "p9", line: 3, reason: "bad row" }]
+    )
+    const result = await answered(seen, "job-output", { id: "j1" }, {}, faulted)
+    const told = first(result)
+    expect(told["error"]).toBe("export/j1/error.ndjson")
+    expect(told["output"]).toEqual([{ path: SHEET, rows: 1 }])
+  })
+
+  it("reads the failure file it named", async () => {
+    const seen: Seen = { calls: [], notes: [] }
+    const faulted = depotOf(
+      { [SHEET]: ["{}"] },
+      [{ job: "j1", unit: "u1", type: "Patient", id: "p9", line: 3, reason: "bad row" }]
+    )
+    const result = await answered(
+      seen,
+      "job-output",
+      { id: "j1", path: "export/j1/error.ndjson" },
+      {},
+      faulted
+    )
+    expect(result.isError).toBe(false)
+    expect(JSON.stringify(result.content)).toContain("bad row")
+  })
+
+  it("journals an output call like any other", async () => {
+    const seen: Seen = { calls: [], notes: [] }
+    await answered(seen, "job-output", { id: "j1" }, {}, written)
+    expect(seen.notes.map((note) => [note.tool, note.outcome])).toEqual([
+      ["job-output", "success"]
+    ])
+  })
+
+  it("annotates an output read as read only", () => {
+    const output = jobTools.find((tool) => tool.name === "job-output")
+    expect(output?.annotations.destructiveHint).toBe(false)
+    expect(output?.annotations.readOnlyHint).toBe(true)
+    expect(output?.description).toContain("job-output")
+    expect(output?.inputSchema.required).toEqual(["id"])
   })
 })

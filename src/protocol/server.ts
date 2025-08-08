@@ -27,6 +27,7 @@ import { Grant, callWrite, writeTools } from "../agent/write.js"
 import type { Journal } from "../agent/write.js"
 import { callJob, jobTools } from "../agent/jobs.js"
 import { Jobs } from "../jobs/service.js"
+import { DepotPort } from "../bulk/depot.js"
 import { callTerminology, terminologyTools } from "../agent/terminology.js"
 import { statements } from "../conformance/capability.js"
 import { REGISTRIES, versions } from "../conformance/versions.js"
@@ -71,7 +72,7 @@ export type Writes = Layer.Layer<Versions | Rules | Grant | Journal>
 
 export type Observed = Layer.Layer<Metrics>
 
-export type Desked = Layer.Layer<Jobs>
+export type Desked = Layer.Layer<Jobs | DepotPort>
 
 export const surface = (
   writable: boolean,

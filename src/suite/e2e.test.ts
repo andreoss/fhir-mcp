@@ -49,6 +49,7 @@ describe("a writable build driven over stdio", () => {
       "job-submit",
       "job-status",
       "job-cancel",
+      "job-output",
       "create",
       "update",
       "delete",
@@ -209,6 +210,59 @@ describe("a writable build driven over stdio", () => {
   it("answers a job it was never given as an outcome, not a crash", async () => {
     const called = await session.callTool("job-status", { id: "no-such-job" })
     if (called.kind !== "answered") throw new Error("job-status was refused")
+    expect(called.isError).toBe(true)
+    expect(record(called.body)["resourceType"]).toBe("OperationOutcome")
+  })
+
+  it("exports through a job and reads back the sheet it wrote", async () => {
+    const submitted = await session.callTool("job-submit", {
+      kind: "export",
+      request: '{"scope":{"kind":"system"},"_type":["Observation"]}'
+    })
+    if (submitted.kind !== "answered" || submitted.isError) {
+      throw new Error("job-submit was refused")
+    }
+    const id = String(record(submitted.body)["id"])
+    let state = ""
+    for (let attempt = 0; attempt < 60 && state !== "done" && state !== "failed"; attempt++) {
+      await new Promise((settled) => setTimeout(settled, 100))
+      const polled = await session.callTool("job-status", { id })
+      if (polled.kind !== "answered") throw new Error("job-status was refused")
+      state = String(record(polled.body)["state"])
+    }
+    expect(state).toBe("done")
+
+    const reported = await session.callTool("job-output", { id })
+    if (reported.kind !== "answered" || reported.isError) {
+      throw new Error("job-output was refused")
+    }
+    const told = record(reported.body)
+    expect(told["state"]).toBe("done")
+    expect(told["error"]).toBeUndefined()
+    const sheets = told["output"] as ReadonlyArray<Record<string, unknown>>
+    expect(sheets.length).toBeGreaterThan(0)
+    const path = String(sheets[0]?.["path"])
+    expect(path).toBe(`export/${id}/Observation-0.ndjson`)
+    expect(Number(sheets[0]?.["rows"])).toBe(3)
+
+    const read = await session.callTool("job-output", { id, path })
+    if (read.kind !== "answered" || read.isError) {
+      throw new Error("job-output was refused")
+    }
+    const sheet = record(record(read.body)["sheet"])
+    expect(sheet["path"]).toBe(path)
+    expect(sheet["returned"]).toBe(3)
+    const lines = sheet["lines"] as ReadonlyArray<string>
+    const rows = lines.map((line) => JSON.parse(line) as Record<string, unknown>)
+    expect(rows.map((row) => row["id"]).sort()).toEqual(["o1", "o2", "o3"])
+  })
+
+  it("refuses to read a sheet the job never wrote", async () => {
+    const called = await session.callTool("job-output", {
+      id: "no-such-job",
+      path: "export/no-such-job/Observation-0.ndjson"
+    })
+    if (called.kind !== "answered") throw new Error("job-output was refused")
     expect(called.isError).toBe(true)
     expect(record(called.body)["resourceType"]).toBe("OperationOutcome")
   })

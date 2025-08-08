@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Context, Effect } from "effect"
 import type { DuckDBConnection } from "@duckdb/node-api"
 import type { FhirResource } from "../core/engine.js"
 import { Unavailable } from "../core/outcome.js"
@@ -114,6 +114,8 @@ export interface Depot {
   ) => Effect.Effect<ReadonlyArray<Target>, Failure>
   readonly refresh: (target: Target) => Effect.Effect<number, Failure>
 }
+
+export class DepotPort extends Context.Tag("Depot")<DepotPort, Depot>() {}
 
 const asFailure = (): Failure => new Unavailable({ dependency: "store" })
 

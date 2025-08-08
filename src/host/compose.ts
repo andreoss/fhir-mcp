@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto"
 import { DuckDBInstance } from "@duckdb/node-api"
 import type { DuckDBConnection } from "@duckdb/node-api"
 import type { Config } from "../config/config.js"
+import { DepotPort } from "../bulk/depot.js"
 import { Rules, Versions, defaults } from "../core/interactions.js"
 import { FhirEngine } from "../core/engine.js"
 import { Jobs } from "../jobs/service.js"
@@ -25,6 +26,7 @@ export type Wiring =
   | Grant
   | Journal
   | Jobs
+  | DepotPort
   | TerminologyPort
   | Metrics
 
@@ -42,14 +44,15 @@ const connect = (path: string): Effect.Effect<DuckDBConnection, Failure, never> 
 
 export const served = (
   config: Config
-): Layer.Layer<FhirEngine | Versions | Jobs, Failure> =>
+): Layer.Layer<FhirEngine | Versions | Jobs | DepotPort, Failure> =>
   Layer.scopedContext(
     Effect.gen(function* () {
       const held = yield* startup(yield* connect(config.store.path))
       const engine = binding(held, restrictionOf(config))
       return Context.make(FhirEngine, engine).pipe(
         Context.add(Versions, held.versions),
-        Context.add(Jobs, held.jobs)
+        Context.add(Jobs, held.jobs),
+        Context.add(DepotPort, held.depot)
       )
     })
   )
