@@ -6,6 +6,7 @@ import { repeats, required } from "../model/shape.js"
 import type { Element, Elements } from "../model/shape.js"
 import { surface } from "../protocol/server.js"
 import { walk } from "../store/definitions.js"
+import type { Called } from "./harness.js"
 
 export interface Concept {
   readonly system: string
@@ -16,6 +17,12 @@ export interface Concept {
 export interface Carried {
   readonly write: boolean
   readonly terms?: Concept
+  readonly jobs?: boolean
+}
+
+export interface Keep {
+  readonly name: string
+  readonly at: ReadonlyArray<string>
 }
 
 export type Want =
@@ -35,12 +42,36 @@ export type Want =
   | { readonly kind: "removed" }
   | { readonly kind: "absent"; readonly code: string }
   | { readonly kind: "concept"; readonly concept: Concept }
+  | { readonly kind: "ticket"; readonly base: string }
+  | { readonly kind: "state"; readonly state: string }
 
 export interface Step {
   readonly tool: string
   readonly args: Record<string, unknown>
   readonly want: Want
+  readonly keep?: Keep
+  readonly settle?: number
 }
+
+export type Call = (name: string, args: unknown) => Promise<Called>
+
+const JOB = "job"
+
+const ID = "${job}"
+
+const KIND = "reindex"
+
+const REQUEST = "{}"
+
+const JOBS = "/jobs"
+
+const DONE = "done"
+
+const CONFLICT = "conflict"
+
+const TRIES = 40
+
+const POLL = 100
 
 const SAMPLES: Readonly<Record<ParamType, string>> = {
   number: "1",
@@ -98,11 +129,26 @@ export const bodyOf = (type: string): Record<string, unknown> => {
 
 export const stepsOf = (registry: Registry, carried: Carried): ReadonlyArray<Step> => {
   const served = new Set(
-    surface(carried.write, carried.terms !== undefined).map((tool) => tool.name)
+    surface(carried.write, carried.terms !== undefined, carried.jobs === true).map(
+      (tool) => tool.name
+    )
   )
   const steps: Array<Step> = []
-  const ask = (tool: string, args: Record<string, unknown>, want: Want): void => {
-    if (served.has(tool)) steps.push({ tool, args, want })
+  const ask = (
+    tool: string,
+    args: Record<string, unknown>,
+    want: Want,
+    keep?: Keep,
+    settle?: number
+  ): void => {
+    if (!served.has(tool)) return
+    steps.push({
+      tool,
+      args,
+      want,
+      ...(keep === undefined ? {} : { keep }),
+      ...(settle === undefined ? {} : { settle })
+    })
   }
   const types = registry.types()
   ask("capabilities", {}, { kind: "types", types })
@@ -155,6 +201,15 @@ export const stepsOf = (registry: Registry, carried: Carried): ReadonlyArray<Ste
       kind: "concept",
       concept: terms
     })
+  }
+  if (carried.jobs === true) {
+    ask("job-submit", { kind: KIND, request: REQUEST }, { kind: "ticket", base: JOBS }, {
+      name: JOB,
+      at: ["id"]
+    })
+    ask("job-status", { id: ID }, { kind: "state", state: DONE }, undefined, TRIES)
+    ask("job-output", { id: ID }, { kind: "state", state: DONE })
+    ask("job-cancel", { id: ID }, { kind: "absent", code: CONFLICT })
   }
   return steps
 }
@@ -226,5 +281,87 @@ export const faults = (want: Want, body: unknown): ReadonlyArray<string> => {
         ...named("code", want.concept.code, found["code"]),
         ...named("display", want.concept.display, found["display"])
       ]
+    case "ticket": {
+      const id = found["id"]
+      return [
+        ...(typeof id === "string" && id.length > 0
+          ? []
+          : [`id: expected a job id, got ${JSON.stringify(id)}`]),
+        ...named("location", `${want.base}/${String(id)}`, found["location"]),
+        ...(typeof found["retryAfter"] === "number" && found["retryAfter"] > 0
+          ? []
+          : [
+            `retryAfter: expected a positive number, got ${JSON.stringify(
+              found["retryAfter"]
+            )}`
+          ])
+      ]
+    }
+    case "state":
+      return named("state", want.state, found["state"])
   }
+}
+
+export const taken = (
+  body: unknown,
+  at: ReadonlyArray<string>
+): string | undefined => {
+  let found: unknown = body
+  for (const field of at) found = held(found)[field]
+  return found === undefined || found === null ? undefined : String(found)
+}
+
+const substituted = (
+  args: Record<string, unknown>,
+  kept: Readonly<Record<string, string>>
+): Record<string, unknown> => {
+  const asked: Record<string, unknown> = {}
+  for (const [field, value] of Object.entries(args)) {
+    asked[field] =
+      typeof value === "string"
+        ? value.replace(/\$\{([A-Za-z0-9_]+)\}/g, (whole, name: string) => kept[name] ?? whole)
+        : value
+  }
+  return asked
+}
+
+const later = (ms: number): Promise<void> =>
+  new Promise((settled) => setTimeout(settled, ms))
+
+export const drive = async (
+  steps: ReadonlyArray<Step>,
+  call: Call,
+  pause: number = POLL
+): Promise<ReadonlyArray<string>> => {
+  const kept: Record<string, string> = {}
+  const reports: Array<string> = []
+  for (const step of steps) {
+    const args = substituted(step.args, kept)
+    const tries = step.settle ?? 1
+    let body: unknown = undefined
+    let bad: ReadonlyArray<string> = []
+    for (let attempt = 1; attempt <= tries; attempt += 1) {
+      const called = await call(step.tool, args)
+      if (called.kind !== "answered") throw new Error(`${step.tool} was refused`)
+      body = called.body
+      bad = [
+        ...(called.isError === (step.want.kind === "absent")
+          ? []
+          : [
+            `isError: expected ${String(step.want.kind === "absent")}, got ${String(
+              called.isError
+            )}`
+          ]),
+        ...faults(step.want, called.body)
+      ]
+      if (bad.length === 0) break
+      if (attempt < tries) await later(pause)
+    }
+    for (const fault of bad) reports.push(`${step.tool}: ${fault}`)
+    if (step.keep !== undefined) {
+      const found = taken(body, step.keep.at)
+      if (found !== undefined) kept[step.keep.name] = found
+    }
+  }
+  return reports
 }

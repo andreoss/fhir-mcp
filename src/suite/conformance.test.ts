@@ -12,7 +12,7 @@ import { checksOf, verify } from "./checks.js"
 import type { Observed, Verdict } from "./checks.js"
 import { defaultSuite, loadSuite, unmet } from "./external.js"
 import type { Suite } from "./external.js"
-import { faults, stepsOf } from "./exercise.js"
+import { drive, stepsOf } from "./exercise.js"
 import type { Concept, Step } from "./exercise.js"
 import { termsEntry } from "./build.js"
 import { open } from "./harness.js"
@@ -22,7 +22,7 @@ import type { Conformance } from "./record.js"
 
 const DIR = fileURLToPath(new URL("record/", import.meta.url))
 
-const OFFERED = surface(true, true)
+const OFFERED = surface(true, true, true)
 
 const NAMES = OFFERED.map((tool) => tool.name)
 
@@ -65,16 +65,8 @@ const gather = async (session: Session): Promise<Observed> => {
   return { tools: listed.map((tool) => tool.name), types, params }
 }
 
-const run = async (session: Session, steps: ReadonlyArray<Step>): Promise<void> => {
-  for (const step of steps) {
-    const called = await session.callTool(step.tool, step.args)
-    if (called.kind !== "answered") throw new Error(`${step.tool} was refused`)
-    expect(called.isError).toBe(step.want.kind === "absent")
-    expect({ tool: step.tool, args: step.args, faults: faults(step.want, called.body) }).toEqual(
-      { tool: step.tool, args: step.args, faults: [] }
-    )
-  }
-}
+const run = (session: Session, steps: ReadonlyArray<Step>): Promise<ReadonlyArray<string>> =>
+  drive(steps, session.callTool)
 
 describe("conformance recorded per version", () => {
   let written: Session
@@ -133,9 +125,9 @@ describe("conformance recorded per version", () => {
       })
 
       it("exercises every tool it serves against a real server", async () => {
-        const steps = stepsOf(registry, { write: true, terms: TERMS })
+        const steps = stepsOf(registry, { write: true, terms: TERMS, jobs: true })
         expect(new Set(steps.map((step) => step.tool))).toEqual(new Set(NAMES))
-        await run(written, steps)
+        expect(await run(written, steps)).toEqual([])
       })
 
       it("exercises every tool it serves when writing is not granted", async () => {
@@ -144,7 +136,7 @@ describe("conformance recorded per version", () => {
         expect(new Set(steps.map((step) => step.tool))).toEqual(
           new Set(surface(false, true).map((tool) => tool.name))
         )
-        await run(reading, steps)
+        expect(await run(reading, steps)).toEqual([])
       })
 
       it("records the run and blocks a regression against the last one", async () => {

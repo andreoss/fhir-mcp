@@ -4,7 +4,7 @@ import { REGISTRIES } from "../conformance/versions.js"
 import type { Registry } from "../conformance/versions.js"
 import { check } from "../model/validate.js"
 import { surface } from "../protocol/server.js"
-import { bodyOf, faults, sample, stepsOf } from "./exercise.js"
+import { bodyOf, drive, faults, sample, stepsOf, taken } from "./exercise.js"
 import type { Concept, Step } from "./exercise.js"
 
 const two: Registry = {
@@ -48,6 +48,20 @@ describe("the exercise the surface is put through", () => {
 
   it("leaves the lookup out when the build carries no terminology", () => {
     expect(toolsOf(stepsOf(two, { write: true }))).not.toContain("lookup")
+  })
+
+  it("asks the job tools when the build carries a desk", () => {
+    const asked = new Set(toolsOf(stepsOf(two, { write: true, terms, jobs: true })))
+    expect([...asked].sort()).toEqual(
+      surface(true, true, true).map((tool) => tool.name).sort()
+    )
+  })
+
+  it("leaves the job tools out when the build carries no desk", () => {
+    const asked = toolsOf(stepsOf(two, { write: true, terms }))
+    for (const tool of ["job-submit", "job-status", "job-cancel", "job-output"]) {
+      expect(asked).not.toContain(tool)
+    }
   })
 
   it("asks about the whole surface once and about each declared type", () => {
@@ -172,6 +186,189 @@ describe("the exercise the surface is put through", () => {
   })
 })
 
+describe("the steps a job is put through", () => {
+  const jobbed = (): ReadonlyArray<Step> => stepsOf(two, { write: true, jobs: true })
+
+  it("submits one job and keeps the id it answered", () => {
+    const submit = jobbed().find((step) => step.tool === "job-submit")
+    expect(argsOf(submit)).toEqual({ kind: "reindex", request: "{}" })
+    expect(submit?.keep).toEqual({ name: "job", at: ["id"] })
+    expect(submit?.want).toEqual({ kind: "ticket", base: "/jobs" })
+  })
+
+  it("asks for the state of the job it kept, again until it settles", () => {
+    const asked = jobbed().find((step) => step.tool === "job-status")
+    expect(argsOf(asked)).toEqual({ id: "${job}" })
+    expect(asked?.want).toEqual({ kind: "state", state: "done" })
+    expect(asked?.settle).toBeGreaterThan(1)
+  })
+
+  it("reads what the job wrote and then asks for it to stop", () => {
+    const asked = jobbed().filter(
+      (step) => step.tool === "job-output" || step.tool === "job-cancel"
+    )
+    expect(toolsOf(asked)).toEqual(["job-output", "job-cancel"])
+    expect(argsOf(asked[0])).toEqual({ id: "${job}" })
+    expect(asked[0]?.want).toEqual({ kind: "state", state: "done" })
+    expect(asked[1]?.want).toEqual({ kind: "absent", code: "conflict" })
+  })
+})
+
+describe("the driver that walks the surface through its steps", () => {
+  const asked: ReadonlyArray<Step> = [
+    { tool: "capabilities", args: {}, want: { kind: "types", types: ["Patient"] } }
+  ]
+
+  it("asks every step it was given and reports nothing when each one holds", async () => {
+    const call = async () => ({
+      kind: "answered" as const,
+      isError: false,
+      body: { resourceTypes: ["Patient"] }
+    })
+    expect(await drive(asked, call)).toEqual([])
+  })
+
+  it("names the tool and the field an answer got wrong", async () => {
+    const call = async () => ({
+      kind: "answered" as const,
+      isError: false,
+      body: { resourceTypes: [] }
+    })
+    expect(await drive(asked, call)).toEqual([
+      'capabilities: resourceTypes: expected ["Patient"], got []'
+    ])
+  })
+
+  it("names an answer that came back as an error when none was expected", async () => {
+    const call = async () => ({
+      kind: "answered" as const,
+      isError: true,
+      body: { resourceType: "OperationOutcome", issue: [{ code: "invalid" }] }
+    })
+    expect(await drive(asked, call)).toEqual([
+      "capabilities: isError: expected false, got true",
+      'capabilities: resourceTypes: expected ["Patient"], got []'
+    ])
+  })
+
+  it("takes an answer it expected to be refused", async () => {
+    const call = async () => ({
+      kind: "answered" as const,
+      isError: true,
+      body: { resourceType: "OperationOutcome", issue: [{ code: "not-found" }] }
+    })
+    const steps: ReadonlyArray<Step> = [
+      { tool: "read", args: { type: "Patient", id: "p1" }, want: { kind: "absent", code: "not-found" } }
+    ]
+    expect(await drive(steps, call)).toEqual([])
+  })
+
+  it("stops when the protocol refuses the tool", async () => {
+    const call = async () => ({
+      kind: "refused" as const,
+      code: -32601,
+      message: "no such tool"
+    })
+    await expect(drive(asked, call)).rejects.toThrow("capabilities was refused")
+  })
+
+  it("asks again until the answer it waits for arrives", async () => {
+    let tried = 0
+    const call = async () => {
+      tried += 1
+      return {
+        kind: "answered" as const,
+        isError: false,
+        body: { state: tried < 3 ? "running" : "done" }
+      }
+    }
+    const steps: ReadonlyArray<Step> = [
+      { tool: "job-status", args: { id: "j1" }, want: { kind: "state", state: "done" }, settle: 5 }
+    ]
+    expect(await drive(steps, call, 0)).toEqual([])
+    expect(tried).toBe(3)
+  })
+
+  it("reports the last answer when the tries it was given run out", async () => {
+    let tried = 0
+    const call = async () => {
+      tried += 1
+      return { kind: "answered" as const, isError: false, body: { state: "running" } }
+    }
+    const steps: ReadonlyArray<Step> = [
+      { tool: "job-status", args: { id: "j1" }, want: { kind: "state", state: "done" }, settle: 2 }
+    ]
+    expect(await drive(steps, call, 0)).toEqual([
+      'job-status: state: expected "done", got "running"'
+    ])
+    expect(tried).toBe(2)
+  })
+
+  it("keeps what a step answered and asks the next one with it", async () => {
+    const seen: Array<unknown> = []
+    const steps: ReadonlyArray<Step> = [
+      {
+        tool: "job-submit",
+        args: { kind: "reindex", request: "{}" },
+        want: { kind: "ticket", base: "/jobs" },
+        keep: { name: "job", at: ["id"] }
+      },
+      {
+        tool: "job-status",
+        args: { id: "${job}", limit: 3 },
+        want: { kind: "state", state: "done" }
+      }
+    ]
+    const call = async (name: string, args: unknown) => {
+      seen.push(args)
+      return name === "job-submit"
+        ? {
+          kind: "answered" as const,
+          isError: false,
+          body: { id: "j9", location: "/jobs/j9", retryAfter: 5 }
+        }
+        : { kind: "answered" as const, isError: false, body: { state: "done" } }
+    }
+    expect(await drive(steps, call)).toEqual([])
+    expect(seen[1]).toEqual({ id: "j9", limit: 3 })
+  })
+
+  it("leaves the name alone when the step it came from kept nothing", async () => {
+    const seen: Array<unknown> = []
+    const steps: ReadonlyArray<Step> = [
+      {
+        tool: "job-submit",
+        args: { kind: "reindex", request: "{}" },
+        want: { kind: "ticket", base: "/jobs" },
+        keep: { name: "job", at: ["id"] }
+      },
+      { tool: "job-status", args: { id: "${job}" }, want: { kind: "state", state: "done" } }
+    ]
+    const call = async (name: string, args: unknown) => {
+      seen.push(args)
+      return name === "job-submit"
+        ? { kind: "answered" as const, isError: false, body: { location: "/jobs/j9" } }
+        : { kind: "answered" as const, isError: false, body: { state: "done" } }
+    }
+    await drive(steps, call)
+    expect(seen[1]).toEqual({ id: "${job}" })
+  })
+})
+
+describe("the field a step keeps from an answer", () => {
+  it("takes the value at the path it was given", () => {
+    expect(taken({ id: "j9" }, ["id"])).toBe("j9")
+    expect(taken({ job: { id: "j9" } }, ["job", "id"])).toBe("j9")
+    expect(taken({ done: 2 }, ["done"])).toBe("2")
+  })
+
+  it("answers nothing for a body that does not hold the path", () => {
+    expect(taken({}, ["id"])).toBeUndefined()
+    expect(taken({ id: "j9" }, ["id", "of"])).toBeUndefined()
+    expect(taken("gone", ["id"])).toBeUndefined()
+  })
+})
+
 describe("the sample a declared parameter is searched with", () => {
   it("takes a value of the kind the declaration names", () => {
     expect(sample("date")).toBe("2024-01-01")
@@ -218,6 +415,14 @@ describe("what an answer has to meet", () => {
         display: terms.display
       })
     ).toEqual([])
+    expect(
+      faults({ kind: "ticket", base: "/jobs" }, {
+        id: "j9",
+        location: "/jobs/j9",
+        retryAfter: 5
+      })
+    ).toEqual([])
+    expect(faults({ kind: "state", state: "done" }, { state: "done" })).toEqual([])
   })
 
   it("names what an answer got wrong", () => {
@@ -256,6 +461,24 @@ describe("what an answer has to meet", () => {
       code: terms.code,
       display: terms.display
     })).toEqual(['_tag: expected "Found", got "Unsupplied"'])
+    expect(
+      faults({ kind: "ticket", base: "/jobs" }, {
+        id: "j9",
+        location: "jobs/j9",
+        retryAfter: 0
+      })
+    ).toEqual([
+      'location: expected "/jobs/j9", got "jobs/j9"',
+      'retryAfter: expected a positive number, got 0'
+    ])
+    expect(faults({ kind: "ticket", base: "/jobs" }, { location: "/jobs/" })).toEqual([
+      'id: expected a job id, got undefined',
+      'location: expected "/jobs/undefined", got "/jobs/"',
+      'retryAfter: expected a positive number, got undefined'
+    ])
+    expect(faults({ kind: "state", state: "done" }, { state: "failed" })).toEqual([
+      'state: expected "done", got "failed"'
+    ])
   })
 
   it("reports an answer that is not a resource at all", () => {
