@@ -4,6 +4,7 @@ node_modules/
 dist/
 coverage/
 scratch/
+.tmp/
 *.log
 .env
 .env.*
