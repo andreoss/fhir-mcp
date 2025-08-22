@@ -6,7 +6,10 @@ import type { Config } from "../config/config.js"
 import { DepotPort } from "../bulk/depot.js"
 import { Rules, Versions, defaults } from "../core/interactions.js"
 import { FhirEngine } from "../core/engine.js"
+import { FhirOperations } from "../agent/tools.js"
 import { Jobs } from "../jobs/service.js"
+import { recordsOn } from "../operations/duck.js"
+import { operationsOn, permissionOf } from "../operations/serve.js"
 import { asJournal, beside } from "../trail/ledger.js"
 import { open } from "../trail/store.js"
 import { Grant, Journal } from "../agent/write.js"
@@ -21,6 +24,7 @@ import { binding, restrictionOf, startup } from "./wiring.js"
 
 export type Wiring =
   | FhirEngine
+  | FhirOperations
   | Versions
   | Rules
   | Grant
@@ -44,12 +48,20 @@ const connect = (path: string): Effect.Effect<DuckDBConnection, Failure, never> 
 
 export const served = (
   config: Config
-): Layer.Layer<FhirEngine | Versions | Jobs | DepotPort, Failure> =>
+): Layer.Layer<
+  FhirEngine | FhirOperations | Versions | Jobs | DepotPort,
+  Failure
+> =>
   Layer.scopedContext(
     Effect.gen(function* () {
       const held = yield* startup(yield* connect(config.store.path))
-      const engine = binding(held, restrictionOf(config))
+      const restriction = restrictionOf(config)
+      const engine = binding(held, restriction)
       return Context.make(FhirEngine, engine).pipe(
+        Context.add(FhirOperations, operationsOn(
+          recordsOn(held.deps.connection),
+          permissionOf(restriction)
+        )),
         Context.add(Versions, held.versions),
         Context.add(Jobs, held.jobs),
         Context.add(DepotPort, held.depot)
