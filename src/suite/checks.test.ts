@@ -18,7 +18,7 @@ const derived = () => {
 const ids = () => derived().map((check) => check.id)
 
 const seen: Observed = {
-  tools: ["read", "search", "capabilities", "create", "update", "delete", "patch"],
+  tools: ["read", "search", "capabilities", "create", "update", "delete", "patch", "transaction", "batch"],
   types: ["Patient", "Observation", "Condition", "Encounter"],
   params: {
     Patient: ["_id", "family", "given", "birthdate", "identifier", "gender"],
@@ -33,7 +33,8 @@ describe("checks derived from the capability statement", () => {
     expect(ids()).toContain("interaction:read")
     expect(ids()).toContain("interaction:create")
     expect(ids()).toContain("interaction:patch")
-    expect(ids()).toContain("system:capabilities")
+    expect(ids()).not.toContain("system:capabilities")
+    expect(ids()).toContain("system:transaction")
   })
 
   it("names one check per resource type and declared parameter", () => {
@@ -44,7 +45,6 @@ describe("checks derived from the capability statement", () => {
 
   it("claims nothing the statement does not declare", () => {
     expect(ids()).not.toContain("interaction:vread")
-    expect(ids()).not.toContain("system:transaction")
     expect(ids()).not.toContain("type:Practitioner")
   })
 
@@ -133,7 +133,6 @@ describe("a statement that names an interaction no tool provides", () => {
     expect(checksOf(declared).map((check) => check.id)).toEqual([
       "interaction:read",
       "param:Patient.family",
-      "system:capabilities",
       "type:Patient"
     ])
   })
@@ -158,8 +157,8 @@ describe("a tool no interaction of the statement covers", () => {
 
   it("names no second check for a tool an interaction already covers", () => {
     const named = derived().map((check) => check.id)
-    expect(named).toContain("system:capabilities")
-    expect(named).not.toContain("tool:capabilities")
+    expect(named).not.toContain("system:capabilities")
+    expect(named).toContain("tool:capabilities")
     expect(named).not.toContain("tool:read")
   })
 

@@ -2,7 +2,7 @@
   "suite": "external-conformance",
   "version": "4.0.1",
   "expect": [
-    { "id": "system:capabilities", "note": "the surface reports what it serves" },
+    { "id": "tool:capabilities", "note": "the surface reports what it serves" },
     { "id": "interaction:read", "note": "read one resource by type and id" },
     { "id": "interaction:search-type", "note": "search one resource type" },
     { "id": "interaction:create", "note": "create a resource" },

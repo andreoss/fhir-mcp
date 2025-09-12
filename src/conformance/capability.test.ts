@@ -164,6 +164,13 @@ describe("capability statement", () => {
     expect(claimed([...tools, spec("transaction")])).toContain("transaction")
   })
 
+  it("claims only system interaction codes the statement allows", () => {
+    const grown = [...tools, spec("capabilities"), spec("transaction"), spec("batch")]
+    for (const one of rest(grown).interaction) {
+      expect(["transaction", "batch", "search-system", "history-system"]).toContain(one.code)
+    }
+  })
+
   it("drops an interaction when its tool goes", () => {
     const without = tools.filter((tool) => tool.name !== "search")
     expect(claimed(without)).not.toContain("search-type")

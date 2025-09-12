@@ -7,6 +7,7 @@ import type { Engine } from "../core/engine.js"
 import { NotFound } from "../core/outcome.js"
 import { Rules, Versions, defaults } from "../core/interactions.js"
 import { Grant, Journal } from "../agent/write.js"
+import { Unit, loose } from "../bundle/unit.js"
 import type { Entry } from "../agent/audit.js"
 import { PAGE_SIZE } from "./cursor.js"
 import { build } from "./server.js"
@@ -25,6 +26,7 @@ const writes = Layer.mergeAll(
   Layer.succeed(Versions, {} as never),
   Layer.succeed(Rules, defaults),
   Layer.succeed(Grant, { write: true, correlation: "test" }),
+  Layer.succeed(Unit, loose),
   Layer.succeed(Journal, { note: (_entry: Entry) => Effect.void })
 )
 
@@ -58,7 +60,7 @@ describe("protocol tools", () => {
     expect(all).toContain("read")
     expect(all).toContain("delete")
     expect(all.sort()).toEqual(
-      ["capabilities", "create", "delete", "patch", "read", "search", "update"].sort()
+      ["batch", "capabilities", "create", "delete", "patch", "read", "search", "transaction", "update"].sort()
     )
     await close()
   })

@@ -117,7 +117,9 @@ describe("the exercise the surface is put through", () => {
       "patch",
       "delete",
       "read",
-      "lookup"
+      "lookup",
+      "transaction",
+      "batch"
     ])
   })
 

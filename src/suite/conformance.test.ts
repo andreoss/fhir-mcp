@@ -116,10 +116,10 @@ describe("conformance recorded per version", () => {
       it("names the external expectations this build does not meet", () => {
         const missing = unmet(suite, verdictsOf(registry))
         expect(missing).toContain("interaction:vread")
-        expect(missing).toContain("system:transaction")
         expect(missing).toContain("type:Practitioner")
         expect(missing).toContain("param:Patient.name")
         expect(missing).not.toContain("interaction:read")
+        expect(missing).not.toContain("system:transaction")
         expect(missing).not.toContain("param:Patient.family")
         expect(suite.version).toBe(registry.fhirVersion)
       })

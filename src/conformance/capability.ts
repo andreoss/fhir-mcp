@@ -71,7 +71,6 @@ const RESOURCE_PROVIDER: Readonly<Record<string, string>> = {
 }
 
 const SYSTEM_PROVIDER: Readonly<Record<string, string>> = {
-  capabilities: "capabilities",
   "search-system": "search_system",
   "history-system": "history",
   transaction: "transaction",

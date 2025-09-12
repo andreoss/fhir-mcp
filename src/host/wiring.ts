@@ -16,6 +16,8 @@ import { registryOn } from "../params/registry.js"
 import { handlers } from "../bulk/bulk.js"
 import { depotOn } from "../bulk/depot.js"
 import type { Depot } from "../bulk/depot.js"
+import { unitOn } from "../bundle/unit.js"
+import type { Bound as Bundle } from "../bundle/unit.js"
 import { desk } from "../jobs/service.js"
 import type { Desk } from "../jobs/service.js"
 import { queueOn } from "../jobs/queue.js"
@@ -43,6 +45,7 @@ export interface Startup {
   readonly versions: VersionedStore
   readonly depot: Depot
   readonly jobs: Desk
+  readonly unit: Bundle
 }
 
 export const restrictionOf = (config: Config): Restriction =>
@@ -80,12 +83,13 @@ export const startup = (
 ): Effect.Effect<Startup, Failure, Scope.Scope> =>
   Effect.gen(function* () {
     const store = yield* engineOn(connection)
-    const versions = yield* versionedOn(connection)
+    const unit = yield* unitOn(connection)
     const depot = yield* depotOn(connection)
     return {
       deps: yield* started(connection),
       store,
-      versions: typed(connection, versions),
+      versions: typed(connection, unit.store),
+      unit,
       depot,
       jobs: yield* jobbing(connection, depot)
     }
