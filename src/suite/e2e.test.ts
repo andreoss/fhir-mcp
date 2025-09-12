@@ -382,6 +382,34 @@ describe("a writable build driven over stdio", () => {
     expect(answered.map((one) => record(one["response"])["status"])).toEqual(["201", "400"])
   })
 
+  it("takes an xml document in and answers one back", async () => {
+    const document =
+      '<Patient xmlns="http://hl7.org/fhir"><id value="px1"/>' +
+      '<name><family value="Lovelace"/></name>' +
+      '<gender value="female"/></Patient>'
+    const made = await session.callTool("create", {
+      type: "Patient",
+      body: document,
+      format: "xml"
+    })
+    expect(made.kind).toBe("answered")
+    if (made.kind !== "answered") return
+    expect(made.isError).toBe(false)
+
+    const xml = await session.callTool("read", {
+      type: "Patient",
+      id: "px1",
+      format: "xml"
+    })
+    if (xml.kind !== "answered") throw new Error("read was refused")
+    expect(String(xml.body).startsWith("<Patient")).toBe(true)
+    expect(String(xml.body)).toContain('<family value="Lovelace"/>')
+
+    const json = await session.callTool("read", { type: "Patient", id: "px1" })
+    if (json.kind !== "answered") throw new Error("read was refused")
+    expect(record(json.body)["gender"]).toBe("female")
+  })
+
   it("keeps the answer stream clean and journals every write beside it", () => {
     expect(session.noise()).toEqual([])
     const writes = session.notes().filter((note) => note["tool"] === "create")

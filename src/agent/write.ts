@@ -19,6 +19,8 @@ import { check, outcome } from "../model/validate.js"
 import { Journal, record, touched, verdict } from "./audit.js"
 import { reasons } from "./redact.js"
 import { WRITE_RULES } from "./rules.js"
+import { asResource } from "./format.js"
+import type { Representation } from "./format.js"
 import type { ToolAnnotations, ToolResult, ToolSpec } from "./tools.js"
 
 export interface Capabilities {
@@ -52,6 +54,15 @@ const Body = Schema.Record({ key: Schema.String, value: Schema.Unknown }).annota
   message: () => "body: expected a resource object"
 })
 
+const Payload = Schema.Union(
+  Body,
+  Schema.String.annotations({ message: () => "body: expected a resource object" })
+)
+
+const Format = Schema.optionalWith(Schema.Literal("json", "xml"), {
+  default: () => "json" as Representation
+})
+
 const Version = Schema.String.pipe(Schema.pattern(/^(W\/)?"?[0-9]+"?$/)).annotations({
   message: () => "version: expected a version"
 })
@@ -67,17 +78,19 @@ const Mode = Schema.optionalWith(Schema.Literal("soft", "hard"), {
 
 const CreateArgs = Schema.Struct({
   type: ResourceType,
-  body: Body,
+  body: Payload,
   id: Schema.optional(Id),
-  criteria: Where
+  criteria: Where,
+  format: Format
 })
 
 const UpdateArgs = Schema.Struct({
   type: ResourceType,
-  body: Body,
+  body: Payload,
   id: Schema.optional(Id),
   criteria: Where,
-  version: Schema.optional(Version)
+  version: Schema.optional(Version),
+  format: Format
 })
 
 const DeleteArgs = Schema.Struct({
@@ -109,9 +122,16 @@ const idProperty = {
   description: "Logical id of the resource. Omit when criteria select it."
 }
 
-const bodyProperty = {
-  type: "object",
-  description: "The resource to write, carrying its own resourceType."
+const documentProperty = {
+  oneOf: [{ type: "object" }, { type: "string" }],
+  description:
+    "The resource to write: an object, or an xml document when format is xml."
+}
+
+const formatProperty = {
+  type: "string",
+  enum: ["json", "xml"],
+  description: "Representation of the body. Defaults to json."
 }
 
 const criteriaProperty = {
@@ -133,9 +153,10 @@ export const writeTools: ReadonlyArray<ToolSpec> = [
       type: "object",
       properties: {
         type: typeProperty,
-        body: bodyProperty,
+        body: documentProperty,
         id: idProperty,
-        criteria: criteriaProperty
+        criteria: criteriaProperty,
+        format: formatProperty
       },
       required: ["type", "body"]
     },
@@ -149,10 +170,11 @@ export const writeTools: ReadonlyArray<ToolSpec> = [
       type: "object",
       properties: {
         type: typeProperty,
-        body: bodyProperty,
+        body: documentProperty,
         id: idProperty,
         criteria: criteriaProperty,
-        version: versionProperty
+        version: versionProperty,
+        format: formatProperty
       },
       required: ["type", "body"]
     },
@@ -214,12 +236,15 @@ const decode = <A, I>(schema: Schema.Schema<A, I>, args: unknown) =>
     Effect.mapError((error): Broken => new Rejected({ reason: reasons(error) }))
   )
 
-const sound = (type: string, body: unknown): Effect.Effect<FhirResource, Broken> =>
-  Effect.suspend(() => {
-    const found = check(type, body)
-    return found.length === 0
-      ? Effect.succeed(body as FhirResource)
-      : Effect.fail(outcome(found))
+const sound = (
+  type: string,
+  body: unknown,
+  format: Representation
+): Effect.Effect<FhirResource, Broken> =>
+  Effect.gen(function* () {
+    const found = yield* asResource(body, format)
+    const gaps = check(type, found)
+    return gaps.length === 0 ? found : yield* Effect.fail(outcome(gaps))
   })
 
 const pairs = (where: { readonly [key: string]: string }): Criteria =>
@@ -237,7 +262,7 @@ type Tool = (args: unknown) => Effect.Effect<unknown, Broken, Versions | Rules>
 const createTool: Tool = (args) =>
   Effect.gen(function* () {
     const asked = yield* decode(CreateArgs, args)
-    const body = yield* sound(asked.type, asked.body)
+    const body = yield* sound(asked.type, asked.body, asked.format)
     const where = pairs(asked.criteria)
     const done = where.length > 0
       ? yield* conditionalCreate(asked.type, body, where)
@@ -248,7 +273,7 @@ const createTool: Tool = (args) =>
 const updateTool: Tool = (args) =>
   Effect.gen(function* () {
     const asked = yield* decode(UpdateArgs, args)
-    const body = yield* sound(asked.type, asked.body)
+    const body = yield* sound(asked.type, asked.body, asked.format)
     const where = pairs(asked.criteria)
     if (where.length > 0) {
       const done = yield* conditionalUpdate(asked.type, body, where, asked.version)
