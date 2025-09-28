@@ -41,7 +41,13 @@ const offered = async (env: Record<string, string | undefined>) =>
 
 describe("what the running server offers", () => {
   it("offers only read tools when writing is not granted", async () => {
-    expect(await offered({ FHIR_TRANSPORT: "stdio" })).toEqual(["capabilities", "read", "search"])
+    expect(await offered({ FHIR_TRANSPORT: "stdio" })).toEqual([
+      "capabilities",
+      "read",
+      "search",
+      "version",
+      "versions"
+    ])
   })
 
   it("offers the write tools when writing is granted", async () => {
