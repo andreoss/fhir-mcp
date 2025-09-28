@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Exit, Layer } from "effect"
 import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -13,8 +13,9 @@ import type { Status } from "../jobs/service.js"
 import { Metrics } from "../obs/metrics.js"
 import { TerminologyPort } from "../terminology/port.js"
 import { open } from "../trail/store.js"
-import { grantOf, journalToErrors, trailed, wiring } from "./compose.js"
-import type { Wiring } from "./compose.js"
+import { retryAfter } from "../persist/pool.js"
+import { STORE, connect, grantOf, journalToErrors, trailed, wiring } from "./compose.js"
+import type { Opening, Wiring } from "./compose.js"
 import type { Config } from "../config/config.js"
 
 const config = (allowWrite: boolean): Config => ({
@@ -280,5 +281,38 @@ describe("what the composition root binds", () => {
         return yield* meter.snapshot
       }))
     expect(seen.map((one) => one.op)).toEqual(["search"])
+  })
+
+  it("bounds how long it waits for the store and what it says to retry", () => {
+    expect(STORE.size).toBe(1)
+    expect(STORE.waitMs).toBeGreaterThan(0)
+    expect(STORE.retryAfterMs).toBeGreaterThan(0)
+  })
+
+  it("answers through the store connection it took from the pool", async () => {
+    const rows = await Effect.runPromise(
+      Effect.scoped(
+        Effect.flatMap(connect(":memory:"), (connection) =>
+          Effect.promise(async () => {
+            const reader = await connection.runAndReadAll("select 1 as n")
+            return reader.getRowObjects() as ReadonlyArray<Record<string, unknown>>
+          })
+        )
+      )
+    )
+    expect(Number(rows[0]?.["n"])).toBe(1)
+  })
+
+  it("refuses a store that never opens, and says when to retry", async () => {
+    const hanging: Opening = () => Effect.never
+    const quick = { size: 1, reserved: 0, waitMs: 5, retryAfterMs: 7 }
+    const failed = await Effect.runPromise(
+      Effect.exit(Effect.scoped(connect(":memory:", quick, hanging)))
+    )
+    if (!Exit.isFailure(failed) || failed.cause._tag !== "Fail") {
+      throw new Error("expected a failure")
+    }
+    expect(failed.cause.error._tag).toBe("Unavailable")
+    expect(retryAfter(failed.cause.error)).toBe(7)
   })
 })
