@@ -11,6 +11,8 @@ import { Rules, Versions, defaults } from "../core/interactions.js"
 import { FhirEngine } from "../core/engine.js"
 import { FhirOperations } from "../agent/tools.js"
 import { Jobs } from "../jobs/service.js"
+import { Watchdog } from "../jobs/watchdog.js"
+import type { Vigil } from "../jobs/watchdog.js"
 import { recordsOn } from "../operations/duck.js"
 import { operationsOn, permissionOf } from "../operations/serve.js"
 import { asJournal, beside } from "../trail/ledger.js"
@@ -39,6 +41,7 @@ export type Wiring =
   | TerminologyPort
   | Catalog
   | Metrics
+  | Watchdog
 
 export const STORE: Budget = {
   size: 1,
@@ -68,14 +71,15 @@ export const connect = (
   )
 
 export const served = (
-  config: Config
+  config: Config,
+  vigil: Partial<Vigil> = {}
 ): Layer.Layer<
-  FhirEngine | FhirOperations | Versions | Jobs | DepotPort | Unit,
+  FhirEngine | FhirOperations | Versions | Jobs | DepotPort | Unit | Watchdog,
   Failure
 > =>
   Layer.scopedContext(
     Effect.gen(function* () {
-      const held = yield* startup(yield* connect(config.store.path))
+      const held = yield* startup(yield* connect(config.store.path), vigil)
       const restriction = restrictionOf(config)
       const engine = binding(held, restriction)
       return Context.make(FhirEngine, engine).pipe(
@@ -86,7 +90,8 @@ export const served = (
         Context.add(Versions, held.versions),
         Context.add(Jobs, held.jobs),
         Context.add(DepotPort, held.depot),
-        Context.add(Unit, held.unit.boundary)
+        Context.add(Unit, held.unit.boundary),
+        Context.add(Watchdog, held.vigil)
       )
     })
   )

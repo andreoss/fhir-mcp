@@ -22,6 +22,9 @@ import { desk } from "../jobs/service.js"
 import type { Desk } from "../jobs/service.js"
 import { queueOn } from "../jobs/queue.js"
 import { start } from "../jobs/worker.js"
+import type { Worker } from "../jobs/worker.js"
+import { watch } from "../jobs/watchdog.js"
+import type { Watch, Vigil } from "../jobs/watchdog.js"
 import { ensure } from "../store/query.js"
 import { engineOn } from "../store/store.js"
 import type { Store } from "../store/store.js"
@@ -39,6 +42,12 @@ import type { AssertionSigner, IssuerConfig, Post, Time } from "../emr/token.js"
 import { node } from "../emr/wire.js"
 import type { Bound } from "../emr/wire.js"
 
+export interface Crew {
+  readonly worker: Worker
+  readonly vigil: Watch
+  readonly desk: Desk
+}
+
 export interface Startup {
   readonly deps: Deps
   readonly store: Store
@@ -46,6 +55,7 @@ export interface Startup {
   readonly depot: Depot
   readonly jobs: Desk
   readonly unit: Bundle
+  readonly vigil: Watch
 }
 
 export const restrictionOf = (config: Config): Restriction =>
@@ -68,30 +78,37 @@ export const started = (
 
 export const jobbing = (
   connection: DuckDBConnection,
-  depot: Depot
-): Effect.Effect<Desk, Failure, Scope.Scope> =>
+  depot: Depot,
+  given: Partial<Vigil> = {}
+): Effect.Effect<Crew, Failure, Scope.Scope> =>
   Effect.gen(function* () {
     const queue = yield* queueOn(connection)
     const registry = handlers(yield* versionedOn(connection), depot)
     const worker = yield* start(queue, registry)
+    const vigil = yield* watch(queue, given)
+    yield* Effect.addFinalizer(() => Effect.orDie(vigil.stop))
     yield* Effect.addFinalizer(() => Effect.orDie(worker.stop))
-    return desk(queue, registry)
+    return { worker, vigil, desk: desk(queue, registry) }
   })
 
 export const startup = (
-  connection: DuckDBConnection
+  connection: DuckDBConnection,
+  vigil: Partial<Vigil> = {}
 ): Effect.Effect<Startup, Failure, Scope.Scope> =>
   Effect.gen(function* () {
     const store = yield* engineOn(connection)
     const unit = yield* unitOn(connection)
     const depot = yield* depotOn(connection)
+    const deps = yield* started(connection)
+    const crew = yield* jobbing(connection, depot, vigil)
     return {
-      deps: yield* started(connection),
+      deps,
       store,
       versions: typed(connection, unit.store),
       unit,
       depot,
-      jobs: yield* jobbing(connection, depot)
+      jobs: crew.desk,
+      vigil: crew.vigil
     }
   })
 

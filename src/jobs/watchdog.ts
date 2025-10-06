@@ -1,4 +1,4 @@
-import { Deferred, Duration, Effect, Either, Fiber, Ref } from "effect"
+import { Context, Deferred, Duration, Effect, Either, Fiber, Ref } from "effect"
 import type { Failure } from "../core/outcome.js"
 import type { Durable } from "./queue.js"
 
@@ -36,6 +36,8 @@ export interface Watch {
   readonly report: Effect.Effect<Sweeps>
   readonly stop: Effect.Effect<Sweeps>
 }
+
+export class Watchdog extends Context.Tag("jobs/Watchdog")<Watchdog, Watch>() {}
 
 type Counter = "reclaimed" | "compacted" | "purged"
 
