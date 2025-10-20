@@ -43,6 +43,7 @@ const Fields = Schema.Struct({
   FHIR_ALLOW_WRITE: Schema.optionalWith(oneOf("false", "true"), { default: () => "false" as const }),
   FHIR_SCOPES: Schema.optionalWith(OriginList, { default: () => [] as ReadonlyArray<string> }),
   FHIR_TERMINOLOGY_DIR: Schema.optional(Schema.String),
+  FHIR_INCUMBENT_PATH: Schema.optional(Schema.String),
   FHIR_LOG_LEVEL: Schema.optionalWith(oneOf("debug", "info", "warn", "error"), {
     default: () => "info" as const
   }),
@@ -92,6 +93,7 @@ export interface Config {
   readonly allowWrite: boolean
   readonly scopes: ReadonlyArray<string>
   readonly terminologyDir: string | undefined
+  readonly incumbentPath?: string
   readonly logLevel: LogLevel
   readonly trail: { readonly path: string; readonly key: string; readonly retentionMs: number }
   readonly emr?: BackendConfig
@@ -159,6 +161,9 @@ const shape = (decoded: typeof Fields.Type, trailKey: string): Config => ({
   allowWrite: decoded.FHIR_ALLOW_WRITE === "true",
   scopes: decoded.FHIR_SCOPES,
   terminologyDir: decoded.FHIR_TERMINOLOGY_DIR,
+  ...(decoded.FHIR_INCUMBENT_PATH === undefined
+    ? {}
+    : { incumbentPath: decoded.FHIR_INCUMBENT_PATH }),
   logLevel: decoded.FHIR_LOG_LEVEL,
   trail: {
     path: decoded.FHIR_TRAIL_PATH,

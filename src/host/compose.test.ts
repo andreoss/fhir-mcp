@@ -14,8 +14,20 @@ import type { Status } from "../jobs/service.js"
 import { Metrics } from "../obs/metrics.js"
 import { TerminologyPort } from "../terminology/port.js"
 import { open } from "../trail/store.js"
+import { Incumbency } from "../replace/port.js"
+import { survey, tally } from "../replace/survey.js"
+import * as versioned from "../store/versioned.js"
 import { retryAfter } from "../persist/pool.js"
-import { STORE, connect, grantOf, journalToErrors, served, trailed, wiring } from "./compose.js"
+import {
+  STORE,
+  connect,
+  grantOf,
+  incumbency,
+  journalToErrors,
+  served,
+  trailed,
+  wiring
+} from "./compose.js"
 import type { Opening, Wiring } from "./compose.js"
 import type { Config } from "../config/config.js"
 
@@ -331,5 +343,73 @@ describe("what the composition root binds", () => {
     }
     expect(failed.cause.error._tag).toBe("Unavailable")
     expect(retryAfter(failed.cause.error)).toBe(7)
+  })
+})
+
+describe("the incumbent another store of this product becomes", () => {
+  const seeded = (): string => {
+    const dir = mkdtempSync(join(tmpdir(), "incumbent-"))
+    return join(dir, "other.duckdb")
+  }
+
+  it("opens a store file written by this product and reads it back", async () => {
+    const path = seeded()
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.flatMap(versioned.open(path), (store) =>
+          store.insertVersion({
+            type: "Patient",
+            id: "p1",
+            versionId: 1,
+            lastUpdated: new Date().toISOString(),
+            deleted: false,
+            body: vance
+          })
+        )
+      )
+    )
+    const found = await inside(config(true), (context) =>
+      Effect.scoped(
+        Effect.flatMap(Context.get(context, Incumbency)(path), (port) => survey(port))
+      ))
+    expect(found.schema.version).toBe(0)
+    expect(found.schema.table.some((one) => one.name === "resource")).toBe(true)
+    expect(found.type).toEqual(["Patient"])
+    expect(tally(found).versions).toBe(1)
+    expect(found.search.some((one) => one.name === "family" && one.indexed > 0)).toBe(true)
+  })
+
+  it("reads a resource of the incumbent and refuses a type it does not carry", async () => {
+    const path = seeded()
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.flatMap(versioned.open(path), (store) =>
+          store.insertVersion({
+            type: "Patient",
+            id: "p2",
+            versionId: 1,
+            lastUpdated: new Date().toISOString(),
+            deleted: false,
+            body: vance
+          })
+        )
+      )
+    )
+    const found = await inside(config(true), (context) =>
+      Effect.scoped(
+        Effect.flatMap(Context.get(context, Incumbency)(path), (port) =>
+          Effect.all({
+            read: port.read("Patient", "p2"),
+            absent: port.read("Patient", "p3")
+          })
+        )
+      ))
+    expect(found.read?.id).toBe("p2")
+    expect(found.absent).toBeUndefined()
+  })
+
+  it("carries the opening of an incumbent as its own layer", async () => {
+    const context = await Effect.runPromise(Effect.scoped(Layer.build(incumbency)))
+    expect(typeof Context.get(context, Incumbency)).toBe("function")
   })
 })
