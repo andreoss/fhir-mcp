@@ -1,0 +1,41 @@
+= fhir-mcp
+
+An MCP server that exposes FHIR operations to AI agents as tools, prompts and
+resources. Data is kept in DuckDB; a remote FHIR/EMR backend can be fronted
+through the same surface. Requires Node.js >= 22. The image is described in
+xref:docker/README.adoc[].
+
+== Build, run, test
+[source,sh]
+----
+npm run build
+node dist/host/cli.js                                  # stdio
+FHIR_TRANSPORT=http FHIR_HTTP_ORIGINS=https://example.org \
+  node dist/host/cli.js                                # http, endpoint /mcp
+npm test && npm run typecheck && npm run coverage
+----
+
+== Configuration
+Environment only; an invalid value stops start-up with every problem listed.
+
+- `FHIR_TRANSPORT` - `stdio` (default), `http` or `https`.
+- `FHIR_HTTP_HOST`, `FHIR_HTTP_PORT` - `127.0.0.1`, `8080`.
+- `FHIR_HTTP_ORIGINS` - comma-separated allowed origins, required over http;
+  any other `Origin` gets 403.
+- `FHIR_TLS_CERT_FILE`, `FHIR_TLS_KEY_FILE`, `FHIR_TLS_PASSPHRASE` - https.
+- `FHIR_STORE_PATH` - DuckDB file, `:memory:` by default.
+- `FHIR_ALLOW_WRITE` - `false` (default) or `true`.
+- `FHIR_SCOPES` - comma-separated named grants that may search.
+- `FHIR_TERMINOLOGY_DIR` - directory of code system files.
+- `FHIR_INCUMBENT_PATH` - incumbent store for the replacement tools.
+- `FHIR_LOG_LEVEL` - `debug`, `info` (default), `warn`, `error`.
+- `FHIR_TRAIL_PATH`, `FHIR_TRAIL_KEY`, `FHIR_TRAIL_RETENTION_MS` - sealed
+  audit trail; a durable path needs the key.
+- `FHIR_SECRET_KEY` - opens `enc:v1:` values in key and credential variables.
+- `FHIR_EMR_*` - EMR backend: `BACKEND`, `BASE_URL`, `PROVIDER` (`generic`,
+  `smart`), `TIMEOUT_MS`, `RETRY_AFTER_MS`, `AUTH_SCHEME` (`none`, `bearer`,
+  `basic`, `smart`) and the `AUTH_*` credentials of that scheme.
+
+== Operations
+`npm run tools -- --help` lists the commands: `migrate`, `data`, `bench`,
+`scaffold`, `health`. Flags need the `--` so npm passes them on.
