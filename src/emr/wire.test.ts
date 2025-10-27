@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { Effect, Exit } from "effect"
+import { Effect, Exit, Fiber } from "effect"
 import { Rejected, Unavailable } from "../core/outcome.js"
 import type { Failure } from "../core/outcome.js"
 import {
@@ -181,6 +181,29 @@ describe("outbound calls", () => {
     const found = failure(await run.exit)
     expect(found._tag).toBe("Unavailable")
     expect(retryAfter(found)).toBe(250)
+  })
+
+  it("destroys the channel when a silent upstream runs out the wait", async () => {
+    const run = sent(() => ({ kind: "silent" }))
+    expect(failure(await run.exit)._tag).toBe("Unavailable")
+    expect(run.seen[0]?.destroyed).toBe(true)
+  })
+
+  it("destroys the channel when the caller gives up", async () => {
+    const fake = opener(() => ({ kind: "silent" }))
+    const fiber = Effect.runFork(
+      over(fake.open).send({
+        method: "GET",
+        url: "https://emr.example/fhir/Patient/1",
+        headers: {},
+        body: undefined,
+        bound: { ...BOUND, timeoutMs: 60_000 }
+      })
+    )
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    const exit = await Effect.runPromise(Fiber.interrupt(fiber))
+    expect(Exit.isInterrupted(exit)).toBe(true)
+    expect(fake.seen[0]?.destroyed).toBe(true)
   })
 
   it("builds a transport over node without calling out", () => {

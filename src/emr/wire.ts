@@ -133,7 +133,10 @@ export const over = (opener: Opener): Transport => ({
         resume(Effect.fail(stalled(request.bound)))
       }
 
-      const timer = setTimeout(fail, request.bound.timeoutMs)
+      const timer = setTimeout(() => {
+        socket.destroy()
+        fail()
+      }, request.bound.timeoutMs)
 
       socket.on("error", (() => {
         clearTimeout(timer)
@@ -148,8 +151,12 @@ export const over = (opener: Opener): Transport => ({
 
       if (request.body !== undefined) {
         socket.write(request.body)
-        socket.end()
       }
+      socket.end()
+      return Effect.sync(() => {
+        clearTimeout(timer)
+        socket.destroy()
+      })
     })
 })
 
