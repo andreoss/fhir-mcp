@@ -1,0 +1,87 @@
+= The image
+
+How the image is built, scanned and published. These are the agreed steps;
+none has been run (see <<not-yet-done>>).
+
+== Files
+- xref:Dockerfile[Dockerfile] three stages: `build` compiles `dist` from
+  `src`, `deps` resolves production modules only, `runtime` carries `dist`,
+  those modules and `package.json`, and runs as the unprivileged `node` user.
+
+The root compose file and the workflow build the root `Dockerfile`, not this
+one. That file carries no version label, so its image cannot answer the
+version questions below.
+
+== Version
+`src/protocol/version.ts` reads the version at start-up from the
+`package.json` beside `dist`, so a container reports its own build, not a
+constant from an earlier one. `initialize` reports it in
+`serverInfo.version`, the capability statement in `software.version`. The
+image carries it as `org.opencontainers.image.version`, and the commit as
+`org.opencontainers.image.revision`.
+
+== Build
+[source,sh]
+----
+VERSION=$(node -p "require('./package.json').version")
+REVISION=$(git rev-parse --short HEAD)
+docker build \
+  --file docker/Dockerfile \
+  --build-arg VERSION="$VERSION" \
+  --build-arg REVISION="$REVISION" \
+  --tag "$REGISTRY/fhir-mcp:$VERSION" \
+  --tag "$REGISTRY/fhir-mcp:sha-$REVISION" \
+  .
+----
+
+The context is the repository root. `.dockerignore` admits the manifests, the
+tsconfig files and `src`, and excludes `src/**/*.test.ts`.
+
+== Version probe
+[source,sh]
+----
+docker run --rm "$REGISTRY/fhir-mcp:$VERSION" \
+  node -p "require('./package.json').version"
+----
+
+Over the http transport (the origin must be in `FHIR_HTTP_ORIGINS`):
+
+[source,sh]
+----
+curl -s -X POST "https://$HOST/mcp" \
+  -H 'origin: https://probe.example' \
+  -H 'accept: application/json, text/event-stream' \
+  -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"probe","version":"0"}}}'
+----
+
+The answer carries `result.serverInfo.version`. A container reporting a
+version other than the tag it was pulled under is not that tag.
+
+== Scan
+Both run before any push; either failing stops the publish.
+
+- Production dependency advisories, as the workflow runs them:
+  `npm audit --omit=dev --audit-level=high`.
+- The built image, by a scanner (none named) that fails the run on high and
+  critical findings.
+
+== Publish
+[source,sh]
+----
+docker push "$REGISTRY/fhir-mcp:$VERSION"
+docker push "$REGISTRY/fhir-mcp:sha-$REVISION"
+docker inspect --format='{{index .RepoDigests 0}}' \
+  "$REGISTRY/fhir-mcp:$VERSION"
+----
+
+- Tags are immutable: a version is pushed once; a fix takes a new version.
+- `latest` is moved by a release, never by a build.
+- The pushed digest is recorded beside the version with its scan output; a
+  deployment names the digest, not the tag.
+
+[[not-yet-done]]
+== Not yet done
+No registry is named, no credentials exist, and no image has been built,
+scanned or pushed. The workflow builds an image and keeps it as an artefact;
+it does not scan or push it.
