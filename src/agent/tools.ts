@@ -16,6 +16,8 @@ import type { Admission } from "./limit.js"
 import { OperationName, Parameters, flatten, named, refusal } from "./params.js"
 import type { Pair, Scope } from "./params.js"
 import { reasons } from "./redact.js"
+import { written } from "./format.js"
+import type { Block, Representation } from "./format.js"
 
 export interface ToolAnnotations {
   readonly readOnlyHint: boolean
@@ -85,13 +87,18 @@ const Elements = Schema.optionalWith(Schema.Array(ElementPath), {
   default: () => [] as ReadonlyArray<string>
 })
 
+const Format = Schema.optionalWith(Schema.Literal("json", "xml"), {
+  default: () => "json" as Representation
+})
+
 const ReadArgs = Schema.Struct({
   type: ResourceType,
   id: Id,
   elements: Elements,
   parameters: Parameters,
   operation: Schema.optional(OperationName),
-  max: Schema.optional(Max)
+  max: Schema.optional(Max),
+  format: Format
 })
 
 const SearchArgs = Schema.Struct({
@@ -100,7 +107,8 @@ const SearchArgs = Schema.Struct({
   elements: Elements,
   max: Schema.optionalWith(Max, { default: () => DEFAULT_MAX_ENTRIES }),
   cursor: Schema.optional(Schema.String),
-  operation: Schema.optional(OperationName)
+  operation: Schema.optional(OperationName),
+  format: Format
 })
 
 const CapabilitiesArgs = Schema.Struct({ type: Schema.optional(ResourceType) })
@@ -134,6 +142,12 @@ const operationProperty = {
 
 const maxProperty = { type: "integer", description: "Largest number of entries to return." }
 
+const formatProperty = {
+  type: "string",
+  enum: ["json", "xml"],
+  description: "Representation of the answer. Defaults to json."
+}
+
 export const tools: ReadonlyArray<ToolSpec> = [
   {
     name: "read",
@@ -149,7 +163,8 @@ export const tools: ReadonlyArray<ToolSpec> = [
         elements: elementsProperty,
         parameters: parametersProperty,
         operation: operationProperty,
-        max: maxProperty
+        max: maxProperty,
+        format: formatProperty
       },
       required: ["type", "id"]
     },
@@ -170,7 +185,8 @@ export const tools: ReadonlyArray<ToolSpec> = [
         elements: elementsProperty,
         max: maxProperty,
         cursor: { type: "string", description: "Continuation token from a previous answer." },
-        operation: operationProperty
+        operation: operationProperty,
+        format: formatProperty
       },
       required: ["type"]
     },
@@ -191,9 +207,12 @@ export const tools: ReadonlyArray<ToolSpec> = [
 
 const names = new Set(tools.map((tool) => tool.name))
 
-const text = (value: unknown): ReadonlyArray<{ readonly type: "text"; readonly text: string }> => [
+const text = (value: unknown): ReadonlyArray<Block> => [
   { type: "text", text: JSON.stringify(value) }
 ]
+
+const blocks = (value: unknown, representation: Representation): Effect.Effect<ReadonlyArray<Block>, Failure> =>
+  Effect.map(written(value, representation), (one) => [{ type: "text" as const, text: one }])
 
 const refused = (found: OperationOutcome): ToolResult => ({ content: text(found), isError: true })
 
@@ -213,12 +232,12 @@ const expired = (millis: number): ToolResult =>
     ]
   })
 
-const succeeded = (
-  value: unknown,
+const answered = (
+  content: ReadonlyArray<Block>,
   elided?: { readonly returned: number; readonly of: number },
   gaps: ReadonlyArray<string> = []
 ): ToolResult => ({
-  content: [...text(value), ...(gaps.length === 0
+  content: [...content, ...(gaps.length === 0
     ? []
     : [{ type: "text" as const, text: `elements matched nothing: ${gaps.join(", ")}` }])],
   isError: false,
@@ -235,20 +254,23 @@ const reject = (reason: string) => Effect.fail(new Rejected({ reason }))
 const trimmed = (
   found: Bundle,
   elements: ReadonlyArray<string>,
-  max: number
-): ToolResult => {
-  const all = found.entry ?? []
-  const entry = all.slice(0, max).map((one) => ({
-    ...one,
-    resource: keep(one.resource as Record<string, unknown>, elements) as FhirResource
-  }))
-  const total = found.total ?? all.length
-  const bundle = { ...found, total, entry }
-  const gaps = missingIn(all.map((one) => one.resource as Record<string, unknown>), elements)
-  return entry.length < total
-    ? succeeded(bundle, { returned: entry.length, of: total }, gaps)
-    : succeeded(bundle, undefined, gaps)
-}
+  max: number,
+  representation: Representation
+): Effect.Effect<ToolResult, Failure> =>
+  Effect.gen(function* () {
+    const all = found.entry ?? []
+    const entry = all.slice(0, max).map((one) => ({
+      ...one,
+      resource: keep(one.resource as Record<string, unknown>, elements) as FhirResource
+    }))
+    const total = found.total ?? all.length
+    const bundle = { ...found, total, entry }
+    const gaps = missingIn(all.map((one) => one.resource as Record<string, unknown>), elements)
+    const content = yield* blocks(bundle, representation)
+    return entry.length < total
+      ? answered(content, { returned: entry.length, of: total }, gaps)
+      : answered(content, undefined, gaps)
+  })
 
 interface Asked {
   readonly name: string
@@ -258,6 +280,7 @@ interface Asked {
   readonly parameters: ReadonlyArray<Pair>
   readonly elements: ReadonlyArray<string>
   readonly max: number
+  readonly format: Representation
 }
 
 const operate = (asked: Asked): Effect.Effect<ToolResult, Failure> =>
@@ -271,10 +294,10 @@ const operate = (asked: Asked): Effect.Effect<ToolResult, Failure> =>
     const found = yield* port.value.invoke({
       name: asked.name,
       type: asked.type,
-      parameters: asked.parameters,
+      parameters: asked.      parameters,
       ...(asked.id === undefined ? {} : { id: asked.id })
     })
-    return trimmed(found, asked.elements, asked.max)
+    return yield* trimmed(found, asked.elements, asked.max, asked.format)
   })
 
 const idle = (parameters: ReadonlyArray<Pair>, max: number | undefined): string | undefined =>
@@ -296,15 +319,18 @@ const readTool = (args: unknown) =>
         id: asked.id,
         parameters,
         elements: asked.elements,
-        max: asked.max ?? DEFAULT_MAX_ENTRIES
+        max: asked.max ?? DEFAULT_MAX_ENTRIES,
+        format: asked.format
       })
     }
     const spare = idle(parameters, asked.max)
     if (spare !== undefined) return yield* reject(spare)
     const engine = yield* FhirEngine
     const resource: FhirResource = yield* engine.read(asked.type, asked.id)
-    return succeeded(
-      keep(resource as Record<string, unknown>, asked.elements),
+    const kept = keep(resource as Record<string, unknown>, asked.elements)
+    const content = yield* blocks(kept, asked.format)
+    return answered(
+      content,
       undefined,
       missing(resource as Record<string, unknown>, asked.elements)
     )
@@ -324,7 +350,8 @@ const searchTool = (args: unknown) =>
         type: decoded.type,
         parameters,
         elements: decoded.elements,
-        max: decoded.max
+        max: decoded.max,
+        format: decoded.format
       })
     }
     let offset = 0
@@ -363,9 +390,10 @@ const searchTool = (args: unknown) =>
         ? { link: [{ relation: "next", url: issue({ type: decoded.type, parameters, offset: next }) }] }
         : {})
     }
+    const content = yield* blocks(bundle, decoded.format)
     return more
-      ? succeeded(bundle, { returned: next, of: total }, gaps)
-      : succeeded(bundle, undefined, gaps)
+      ? answered(content, { returned: next, of: total }, gaps)
+      : answered(content, undefined, gaps)
   })
 
 const declaredFor = (engine: Engine, type: string) =>
@@ -382,10 +410,12 @@ const capabilitiesTool = (args: unknown) =>
     const resourceTypes = yield* engine.resourceTypes()
     if (decoded.type === undefined) {
       const served = yield* Effect.forEach(resourceTypes, (type) => declaredFor(engine, type))
-      return succeeded({ resourceTypes, served })
+      return answered(text({ resourceTypes, served }))
     }
     const parameters = yield* engine.searchParameters(decoded.type)
-    return succeeded({ resourceTypes, type: decoded.type, parameters, operations: named() })
+    return answered(
+      text({ resourceTypes, type: decoded.type, parameters, operations: named() })
+    )
   })
 
 const bound = Effect.serviceOption(Deadline).pipe(
@@ -400,7 +430,9 @@ const bound = Effect.serviceOption(Deadline).pipe(
 const outcomeIn = (result: ToolResult): OperationOutcome | undefined => {
   const first = result.content[0]
   if (first === undefined) return undefined
-  const parsed = JSON.parse(first.text) as {
+  const read = Either.try(() => JSON.parse(first.text) as unknown)
+  if (Either.isLeft(read)) return undefined
+  const parsed = read.right as {
     readonly resourceType?: string
     readonly issue?: ReadonlyArray<unknown>
   }

@@ -5,6 +5,7 @@
     "src/agent/chunk.ts",
     "src/agent/cursor.ts",
     "src/agent/elements.ts",
+    "src/agent/format.ts",
     "src/agent/jobs.ts",
     "src/agent/limit.ts",
     "src/agent/params.ts",
@@ -186,13 +187,14 @@
     "src/versions/source.ts",
     "src/versions/version.ts"
   ],
-  "tests": 179,
+  "tests": 181,
   "tested": [
     "src/agent/audit.ts",
     "src/agent/bundle.ts",
     "src/agent/chunk.ts",
     "src/agent/cursor.ts",
     "src/agent/elements.ts",
+    "src/agent/format.ts",
     "src/agent/jobs.ts",
     "src/agent/limit.ts",
     "src/agent/params.ts",
@@ -386,6 +388,11 @@
       "path": "src/agent/elements.ts",
       "reason": "unnamed",
       "name": "missingIn"
+    },
+    {
+      "path": "src/agent/format.ts",
+      "reason": "unnamed",
+      "name": "REPRESENTATIONS"
     },
     {
       "path": "src/agent/params.ts",

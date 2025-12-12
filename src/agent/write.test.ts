@@ -4,6 +4,7 @@ import type { FhirResource } from "../core/engine.js"
 import { Rules, Versions, defaults } from "../core/interactions.js"
 import type { Version, VersionedStore } from "../core/interactions.js"
 import type { Entry } from "./audit.js"
+import { serialize } from "../format/xml.js"
 import { Grant, Journal, callWrite, writeTools } from "./write.js"
 import type { Capabilities } from "./write.js"
 
@@ -693,5 +694,62 @@ describe("AGT-08 no protected data in a write diagnostic", () => {
     run("create", { type: "Patient", body: patient(), criteria: { family: { value: SECRET } } })
     const line = JSON.stringify(entries)
     expect(line).not.toContain(SECRET)
+  })
+})
+
+describe("HOST-06 the representation a body arrives in", () => {
+  const document = (over: Record<string, unknown> = {}): string =>
+    Effect.runSync(serialize(patient(over)))
+
+  it("stores a resource given as an xml document", () => {
+    const { run, rows } = world()
+    const result = run("create", {
+      type: "Patient",
+      id: "p1",
+      body: document({ id: "p1" }),
+      format: "xml"
+    })
+    expect(result.isError).toBe(false)
+    expect(body(result).id).toBe("p1")
+    expect(body(result).gender).toBe("male")
+    expect(rows).toHaveLength(1)
+  })
+
+  it("replaces a resource from an xml document", () => {
+    const { run } = world()
+    run("create", { type: "Patient", id: "p1", body: patient() })
+    const result = run("update", {
+      type: "Patient",
+      id: "p1",
+      body: document({ id: "p1", gender: "female" }),
+      format: "xml"
+    })
+    expect(result.isError).toBe(false)
+    expect(body(result).gender).toBe("female")
+  })
+
+  it("refuses an xml document that declares another type", () => {
+    const { run } = world()
+    const result = run("create", {
+      type: "Observation",
+      body: document({ id: "p1" }),
+      format: "xml"
+    })
+    expect(result.isError).toBe(true)
+    expect(issues(result)[0].code).toBe("invalid")
+  })
+
+  it("refuses a body an object when the format names a document", () => {
+    const { run } = world()
+    const result = run("create", { type: "Patient", body: patient(), format: "xml" })
+    expect(result.isError).toBe(true)
+    expect(issues(result)[0].diagnostics).toContain("expected an xml document")
+  })
+
+  it("refuses a document when the format names an object", () => {
+    const { run } = world()
+    const result = run("create", { type: "Patient", body: document({ id: "p1" }) })
+    expect(result.isError).toBe(true)
+    expect(issues(result)[0].diagnostics).toContain("format json takes a resource object")
   })
 })
