@@ -44,6 +44,11 @@ export type Want =
   | { readonly kind: "concept"; readonly concept: Concept }
   | { readonly kind: "ticket"; readonly base: string }
   | { readonly kind: "state"; readonly state: string }
+  | {
+    readonly kind: "applied"
+    readonly answer: string
+    readonly status: ReadonlyArray<string>
+  }
 
 export interface Step {
   readonly tool: string
@@ -64,6 +69,10 @@ const KIND = "reindex"
 const REQUEST = "{}"
 
 const JOBS = "/jobs"
+
+const SHEAF = "Patient"
+
+const SHEAF_ID = "agt-9-sheaf"
 
 const DONE = "done"
 
@@ -202,6 +211,22 @@ export const stepsOf = (registry: Registry, carried: Carried): ReadonlyArray<Ste
       concept: terms
     })
   }
+  if (carried.write) {
+    ask(
+      "transaction",
+      {
+        entry: [
+          { resource: { ...bodyOf(SHEAF), id: SHEAF_ID }, request: { method: "POST", url: SHEAF } }
+        ]
+      },
+      { kind: "applied", answer: "transaction-response", status: ["201"] }
+    )
+    ask(
+      "batch",
+      { entry: [{ request: { method: "GET", url: SHEAF } }] },
+      { kind: "applied", answer: "batch-response", status: ["200"] }
+    )
+  }
   if (carried.jobs === true) {
     ask("job-submit", { kind: KIND, request: REQUEST }, { kind: "ticket", base: JOBS }, {
       name: JOB,
@@ -299,6 +324,14 @@ export const faults = (want: Want, body: unknown): ReadonlyArray<string> => {
     }
     case "state":
       return named("state", want.state, found["state"])
+    case "applied": {
+      const entry = Array.isArray(found["entry"]) ? found["entry"] : []
+      const got = entry.map((one) => String(held(held(one)["response"])["status"]))
+      return [
+        ...named("type", want.answer, found["type"]),
+        ...named("status", want.status.join(","), got.join(","))
+      ]
+    }
   }
 }
 

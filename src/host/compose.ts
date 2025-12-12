@@ -4,6 +4,7 @@ import { DuckDBInstance } from "@duckdb/node-api"
 import type { DuckDBConnection } from "@duckdb/node-api"
 import type { Config } from "../config/config.js"
 import { DepotPort } from "../bulk/depot.js"
+import { Unit } from "../bundle/unit.js"
 import { Rules, Versions, defaults } from "../core/interactions.js"
 import { FhirEngine } from "../core/engine.js"
 import { FhirOperations } from "../agent/tools.js"
@@ -31,6 +32,7 @@ export type Wiring =
   | Journal
   | Jobs
   | DepotPort
+  | Unit
   | TerminologyPort
   | Metrics
 
@@ -49,7 +51,7 @@ const connect = (path: string): Effect.Effect<DuckDBConnection, Failure, never> 
 export const served = (
   config: Config
 ): Layer.Layer<
-  FhirEngine | FhirOperations | Versions | Jobs | DepotPort,
+  FhirEngine | FhirOperations | Versions | Jobs | DepotPort | Unit,
   Failure
 > =>
   Layer.scopedContext(
@@ -64,7 +66,8 @@ export const served = (
         )),
         Context.add(Versions, held.versions),
         Context.add(Jobs, held.jobs),
-        Context.add(DepotPort, held.depot)
+        Context.add(DepotPort, held.depot),
+        Context.add(Unit, held.unit.boundary)
       )
     })
   )

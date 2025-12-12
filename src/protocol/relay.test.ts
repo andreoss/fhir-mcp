@@ -6,6 +6,7 @@ import { FhirEngine } from "../core/engine.js"
 import type { Bundle, Engine } from "../core/engine.js"
 import { NotFound } from "../core/outcome.js"
 import { Grant, Journal } from "../agent/write.js"
+import { Unit, loose } from "../bundle/unit.js"
 import type { Entry } from "../agent/audit.js"
 import { Rules, Versions, defaults } from "../core/interactions.js"
 import { Metrics } from "../obs/metrics.js"
@@ -33,6 +34,7 @@ const writes = Layer.mergeAll(
   Layer.succeed(Versions, {} as never),
   Layer.succeed(Rules, defaults),
   Layer.succeed(Grant, { write: false, correlation: "fixed-at-build" }),
+  Layer.succeed(Unit, loose),
   Layer.succeed(Journal, { note: (e: Entry) => Effect.sync(() => { seen.push(e) }) })
 )
 

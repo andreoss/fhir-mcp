@@ -53,7 +53,9 @@ describe("a writable build driven over stdio", () => {
       "create",
       "update",
       "delete",
-      "patch"
+      "patch",
+      "transaction",
+      "batch"
     ])
     const read = listed.find((tool) => tool.name === "read")
     expect(read?.annotations).toEqual({
@@ -340,6 +342,44 @@ describe("a writable build driven over stdio", () => {
     expect(called.isError).toBe(true)
     const issues = record(called.body)["issue"] as ReadonlyArray<Record<string, unknown>>
     expect(String(issues[0]?.["diagnostics"])).toContain("colour")
+  })
+
+  it("applies a transaction and a batch through the served surface", async () => {
+    const byron = (id: string) => ({
+      resource: { resourceType: "Patient", id, name: [{ family: "Byron" }] },
+      request: { method: "POST", url: "Patient" }
+    })
+    const empty = { request: { method: "POST", url: "Patient" } }
+
+    const made = await session.callTool("transaction", {
+      entry: [byron("b1"), byron("b2")]
+    })
+    if (made.kind !== "answered" || made.isError) throw new Error("transaction was refused")
+    const sheaf = record(made.body)
+    expect(sheaf["type"]).toBe("transaction-response")
+    const done = sheaf["entry"] as ReadonlyArray<Record<string, unknown>>
+    expect(done.map((one) => record(one["response"])["status"])).toEqual(["201", "201"])
+
+    const found = await session.callTool("read", { type: "Patient", id: "b2" })
+    if (found.kind !== "answered") throw new Error("read was refused")
+    expect(record(found.body)["id"]).toBe("b2")
+
+    const broken = await session.callTool("transaction", { entry: [byron("b3"), empty] })
+    if (broken.kind !== "answered") throw new Error("transaction was refused")
+    expect(broken.isError).toBe(true)
+
+    const absent = await session.callTool("read", { type: "Patient", id: "b3" })
+    if (absent.kind !== "answered") throw new Error("read was refused")
+    expect(absent.isError).toBe(true)
+    const why = record(absent.body)["issue"] as ReadonlyArray<Record<string, unknown>>
+    expect(why[0]?.["code"]).toBe("not-found")
+
+    const mixed = await session.callTool("batch", { entry: [byron("b4"), empty] })
+    if (mixed.kind !== "answered" || mixed.isError) throw new Error("batch was refused")
+    const batch = record(mixed.body)
+    expect(batch["type"]).toBe("batch-response")
+    const answered = batch["entry"] as ReadonlyArray<Record<string, unknown>>
+    expect(answered.map((one) => record(one["response"])["status"])).toEqual(["201", "400"])
   })
 
   it("keeps the answer stream clean and journals every write beside it", () => {

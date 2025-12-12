@@ -25,6 +25,8 @@ import { call, tools } from "../agent/tools.js"
 import type { ToolResult, ToolSpec } from "../agent/tools.js"
 import { Grant, callWrite, writeTools } from "../agent/write.js"
 import type { Journal } from "../agent/write.js"
+import { bundleTools, callBundle } from "../agent/bundle.js"
+import { Unit } from "../bundle/unit.js"
 import { callJob, jobTools } from "../agent/jobs.js"
 import { Jobs } from "../jobs/service.js"
 import { DepotPort } from "../bulk/depot.js"
@@ -45,6 +47,8 @@ import { INSTRUCTIONS } from "./instructions.js"
 import { NAME, VERSION } from "./version.js"
 
 const writeNames = new Set(writeTools.map((tool) => tool.name))
+
+const bundleNames = new Set(bundleTools.map((tool) => tool.name))
 
 const jobNames = new Set(jobTools.map((tool) => tool.name))
 
@@ -68,7 +72,7 @@ const annotationsOf = (tool: ToolSpec) => {
 
 const REPORT = "capabilities"
 
-export type Writes = Layer.Layer<Versions | Rules | Grant | Journal>
+export type Writes = Layer.Layer<Versions | Rules | Grant | Journal | Unit>
 
 export type Observed = Layer.Layer<Metrics>
 
@@ -82,7 +86,7 @@ export const surface = (
   ...tools,
   ...(withTerms ? terminologyTools : []),
   ...(withJobs ? jobTools : []),
-  ...(writable ? writeTools : [])
+  ...(writable ? [...writeTools, ...bundleTools] : [])
 ]
 
 const unmetered: Observed = Layer.succeed(Metrics, {
@@ -221,13 +225,24 @@ export const build = (
     }
     const lookup = terminology !== undefined && terminologyTools.some((tool) => tool.name === name)
     const onDesk = desk !== undefined && jobNames.has(name)
+    const bundled = bundleNames.has(name) && writing !== undefined
     const answered = lookup
       ? await terminology.runPromise(callTerminology(name, args), { signal: extra.signal })
       : onDesk
         ? await desk.runPromise(edge(callJob(name, args), correlation), {
             signal: extra.signal
           })
-        : writeNames.has(name) && writing !== undefined
+        : bundled
+          ? await writing.runPromise(
+              Effect.flatMap(Grant, (held) =>
+                Effect.provideService(callBundle(name, args), Grant, {
+                  ...held,
+                  correlation
+                })
+              ),
+              { signal: extra.signal }
+            )
+          : writeNames.has(name) && writing !== undefined
       ? await writing.runPromise(
           Effect.flatMap(Grant, (held) =>
             Effect.provideService(callWrite(name, args), Grant, {

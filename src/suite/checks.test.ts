@@ -18,7 +18,7 @@ const derived = () => {
 const ids = () => derived().map((check) => check.id)
 
 const seen: Observed = {
-  tools: ["read", "search", "capabilities", "create", "update", "delete", "patch"],
+  tools: ["read", "search", "capabilities", "create", "update", "delete", "patch", "transaction", "batch"],
   types: ["Patient", "Observation", "Condition", "Encounter"],
   params: {
     Patient: ["_id", "family", "given", "birthdate", "identifier", "gender"],
@@ -34,6 +34,7 @@ describe("checks derived from the capability statement", () => {
     expect(ids()).toContain("interaction:create")
     expect(ids()).toContain("interaction:patch")
     expect(ids()).toContain("system:capabilities")
+    expect(ids()).toContain("system:transaction")
   })
 
   it("names one check per resource type and declared parameter", () => {
@@ -44,7 +45,6 @@ describe("checks derived from the capability statement", () => {
 
   it("claims nothing the statement does not declare", () => {
     expect(ids()).not.toContain("interaction:vread")
-    expect(ids()).not.toContain("system:transaction")
     expect(ids()).not.toContain("type:Practitioner")
   })
 

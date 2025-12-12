@@ -1,6 +1,7 @@
 {
   "modules": [
     "src/agent/audit.ts",
+    "src/agent/bundle.ts",
     "src/agent/chunk.ts",
     "src/agent/cursor.ts",
     "src/agent/elements.ts",
@@ -185,9 +186,10 @@
     "src/versions/source.ts",
     "src/versions/version.ts"
   ],
-  "tests": 177,
+  "tests": 179,
   "tested": [
     "src/agent/audit.ts",
+    "src/agent/bundle.ts",
     "src/agent/chunk.ts",
     "src/agent/cursor.ts",
     "src/agent/elements.ts",

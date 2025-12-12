@@ -99,7 +99,15 @@
       "met": true
     },
     {
+      "id": "system:batch",
+      "met": true
+    },
+    {
       "id": "system:capabilities",
+      "met": true
+    },
+    {
+      "id": "system:transaction",
       "met": true
     },
     {
@@ -143,8 +151,6 @@
     "interaction:history-instance",
     "interaction:vread",
     "param:Patient.name",
-    "system:batch",
-    "system:transaction",
     "type:Practitioner"
   ]
 }
