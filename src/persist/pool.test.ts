@@ -168,6 +168,37 @@ describe("connection pool", () => {
       })
     ))
 
+  it("holds an item for the life of a scope and gives it back at the close", () =>
+    run(
+      Effect.gen(function* () {
+        const held = yield* pool([7, 8], "store", one)
+        expect(yield* Effect.scoped(held.take("write"))).toBe(7)
+        expect((yield* held.census).free).toBe(2)
+        expect((yield* held.census).writing).toBe(0)
+      })
+    ))
+
+  it("refuses a holder kept waiting past the budget and says when to retry", () =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const quick = { size: 1, reserved: 0, waitMs: 20, retryAfterMs: 40 }
+        const held = yield* pool([1], "store", quick)
+        const block = yield* Deferred.make<void>()
+        const holder = yield* Effect.fork(
+          held.use("read", () => Deferred.await(block))
+        )
+        yield* spin()
+        const late = yield* Effect.fork(Effect.scoped(held.take("write")))
+        yield* spin()
+        expect((yield* held.census).waiting).toBe(1)
+        const outcome = failed(yield* Fiber.await(late))
+        expect(outcome._tag).toBe("Unavailable")
+        expect(retryAfter(outcome)).toBe(quick.retryAfterMs)
+        yield* Deferred.succeed(block, undefined)
+        yield* Fiber.join(holder)
+      })
+    ))
+
   it("reads a retry hint only where one was written", () => {
     const hinted = stalled("store", 750) as Failure
     expect(retryAfter(hinted)).toBe(750)

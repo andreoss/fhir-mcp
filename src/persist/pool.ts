@@ -1,5 +1,5 @@
 import { Deferred, Duration, Effect, Option, Ref } from "effect"
-import type { Scope } from "effect"
+import { Scope } from "effect"
 import { DuckDBInstance } from "@duckdb/node-api"
 import type { DuckDBConnection } from "@duckdb/node-api"
 import { Unavailable } from "../core/outcome.js"
@@ -32,6 +32,7 @@ export interface Pool<A> {
     kind: Kind,
     work: (item: A) => Effect.Effect<B, E, R>
   ) => Effect.Effect<B, E | Failure, R>
+  readonly take: (kind: Kind) => Effect.Effect<A, Failure, Scope.Scope>
   readonly census: Effect.Effect<Census>
 }
 
@@ -176,13 +177,21 @@ export const pool = <A>(
         )
       )
 
+    const take = (kind: Kind): Effect.Effect<A, Failure, Scope.Scope> =>
+      Effect.gen(function* () {
+        const scope = yield* Scope.Scope
+        const item = yield* acquire(kind)
+        yield* Scope.addFinalizerExit(scope, () => release(kind, item))
+        return item
+      })
+
     const census = Effect.map(Ref.get(state), (held) => ({
       free: held.free.length,
       writing: held.writing,
       waiting: held.waiting.length
     }))
 
-    return { use, census }
+    return { use, take, census }
   })
 
 export const connections = (

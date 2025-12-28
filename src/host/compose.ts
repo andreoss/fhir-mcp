@@ -1,8 +1,10 @@
-import { Context, Effect, Layer } from "effect"
+import { Context, Duration, Effect, Layer, Option } from "effect"
+import type { Scope } from "effect"
 import { randomUUID } from "node:crypto"
-import { DuckDBInstance } from "@duckdb/node-api"
 import type { DuckDBConnection } from "@duckdb/node-api"
 import type { Config } from "../config/config.js"
+import { BUDGET, connections, stalled } from "../persist/pool.js"
+import type { Budget, Pool } from "../persist/pool.js"
 import { DepotPort } from "../bulk/depot.js"
 import { Unit } from "../bundle/unit.js"
 import { Rules, Versions, defaults } from "../core/interactions.js"
@@ -15,7 +17,6 @@ import { asJournal, beside } from "../trail/ledger.js"
 import { open } from "../trail/store.js"
 import { Grant, Journal } from "../agent/write.js"
 import type { Ledger } from "../agent/audit.js"
-import { Unavailable } from "../core/outcome.js"
 import type { Failure } from "../core/outcome.js"
 import type { Metrics } from "../obs/metrics.js"
 import type { TerminologyPort } from "../terminology/port.js"
@@ -39,17 +40,32 @@ export type Wiring =
   | Catalog
   | Metrics
 
-const connect = (path: string): Effect.Effect<DuckDBConnection, Failure, never> =>
-  Effect.acquireRelease(
-    Effect.tryPromise({
-      try: async () => {
-        const instance = await DuckDBInstance.create(path)
-        return await instance.connect()
-      },
-      catch: () => new Unavailable({ dependency: "store" })
-    }),
-    (connection) => Effect.sync(() => connection.closeSync())
-  ) as unknown as Effect.Effect<DuckDBConnection, Failure, never>
+export const STORE: Budget = {
+  size: 1,
+  reserved: 0,
+  waitMs: BUDGET.waitMs,
+  retryAfterMs: BUDGET.retryAfterMs
+}
+
+export type Opening = (
+  path: string,
+  budget: Budget
+) => Effect.Effect<Pool<DuckDBConnection>, Failure, Scope.Scope>
+
+export const connect = (
+  path: string,
+  budget: Budget = STORE,
+  opening: Opening = connections
+): Effect.Effect<DuckDBConnection, Failure, Scope.Scope> =>
+  Effect.timeoutOption(opening(path, budget), Duration.millis(budget.waitMs)).pipe(
+    Effect.flatMap(
+      (opened): Effect.Effect<Pool<DuckDBConnection>, Failure> =>
+        Option.isSome(opened)
+          ? Effect.succeed(opened.value)
+          : Effect.fail(stalled("store", budget.retryAfterMs))
+    ),
+    Effect.flatMap((held) => held.take("write"))
+  )
 
 export const served = (
   config: Config
