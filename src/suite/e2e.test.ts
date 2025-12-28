@@ -46,6 +46,8 @@ describe("a writable build driven over stdio", () => {
       "read",
       "search",
       "capabilities",
+      "versions",
+      "version",
       "job-submit",
       "job-status",
       "job-cancel",
@@ -410,6 +412,31 @@ describe("a writable build driven over stdio", () => {
     expect(record(json.body)["gender"]).toBe("female")
   })
 
+  it("serves the versions the build carries and the types each one has", async () => {
+    const listed = await session.callTool("versions", {})
+    if (listed.kind !== "answered") throw new Error("versions was refused")
+    expect(record(listed.body)).toEqual({
+      versions: ["4.0.1", "5.0.0"],
+      default: "4.0.1"
+    })
+
+    const four = await session.callTool("version", { version: "4.0.1", type: "Encounter" })
+    if (four.kind !== "answered") throw new Error("version was refused")
+    expect(four.isError).toBe(false)
+    expect(record(four.body)["version"]).toBe("4.0.1")
+
+    const five = await session.callTool("version", { version: "5.0.0", type: "Procedure" })
+    if (five.kind !== "answered") throw new Error("version was refused")
+    expect(five.isError).toBe(false)
+    const body = record(five.body)
+    expect(body["elements"]).toContain("status")
+    expect(body["parameters"]).toContain("status")
+
+    const dropped = await session.callTool("version", { version: "5.0.0", type: "Encounter" })
+    if (dropped.kind !== "answered") throw new Error("version was refused")
+    expect(dropped.isError).toBe(true)
+  })
+
   it("keeps the answer stream clean and journals every write beside it", () => {
     expect(session.noise()).toEqual([])
     const writes = session.notes().filter((note) => note["tool"] === "create")
@@ -432,7 +459,13 @@ describe("a read only build driven over stdio", () => {
   })
 
   it("offers no write tool at all", async () => {
-    expect(named(await session.listTools())).toEqual(["read", "search", "capabilities"])
+    expect(named(await session.listTools())).toEqual([
+      "read",
+      "search",
+      "capabilities",
+      "versions",
+      "version"
+    ])
   })
 
   it("refuses a write before it can reach the store", async () => {

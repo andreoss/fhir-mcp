@@ -31,6 +31,8 @@ import { callJob, jobTools } from "../agent/jobs.js"
 import { Jobs } from "../jobs/service.js"
 import { DepotPort } from "../bulk/depot.js"
 import { callTerminology, terminologyTools } from "../agent/terminology.js"
+import { callVersion, versionTools } from "../agent/versions.js"
+import { Catalog } from "../versions/port.js"
 import { statements } from "../conformance/capability.js"
 import { REGISTRIES, versions } from "../conformance/versions.js"
 import type { Rules, Versions } from "../core/interactions.js"
@@ -51,6 +53,8 @@ const writeNames = new Set(writeTools.map((tool) => tool.name))
 const bundleNames = new Set(bundleTools.map((tool) => tool.name))
 
 const jobNames = new Set(jobTools.map((tool) => tool.name))
+
+const versionNames = new Set(versionTools.map((tool) => tool.name))
 
 export const SERVED: ReadonlyArray<string> = [
   "tools",
@@ -78,12 +82,16 @@ export type Observed = Layer.Layer<Metrics>
 
 export type Desked = Layer.Layer<Jobs | DepotPort>
 
+export type Catalogued = Layer.Layer<Catalog>
+
 export const surface = (
   writable: boolean,
   withTerms = false,
-  withJobs = false
+  withJobs = false,
+  withVersions = false
 ): ReadonlyArray<ToolSpec> => [
   ...tools,
+  ...(withVersions ? versionTools : []),
   ...(withTerms ? terminologyTools : []),
   ...(withJobs ? jobTools : []),
   ...(writable ? [...writeTools, ...bundleTools] : [])
@@ -127,16 +135,19 @@ export const build = (
   writes?: Writes,
   observed: Observed = unmetered,
   terms?: Layer.Layer<TerminologyPort>,
-  jobs?: Desked
+  jobs?: Desked,
+  catalog?: Catalogued
 ): Server => {
   const runtime = ManagedRuntime.make(Layer.merge(engine, observed))
   const writing = writes === undefined ? undefined : ManagedRuntime.make(writes)
   const terminology = terms === undefined ? undefined : ManagedRuntime.make(terms)
   const desk = jobs === undefined ? undefined : ManagedRuntime.make(jobs)
+  const catalogue = catalog === undefined ? undefined : ManagedRuntime.make(catalog)
   const offered = surface(
     writing !== undefined,
     terminology !== undefined,
-    desk !== undefined
+    desk !== undefined,
+    catalogue !== undefined
   )
   const offeredNames = new Set(offered.map((tool) => tool.name))
   const server = new Server(
@@ -224,11 +235,17 @@ export const build = (
       })
     }
     const lookup = terminology !== undefined && terminologyTools.some((tool) => tool.name === name)
+    const named = catalogue !== undefined && versionNames.has(name)
     const onDesk = desk !== undefined && jobNames.has(name)
     const bundled = bundleNames.has(name) && writing !== undefined
     const answered = lookup
       ? await terminology.runPromise(callTerminology(name, args), { signal: extra.signal })
-      : onDesk
+      : named
+        ? await catalogue.runPromise(
+            edge(callVersion(name, args), correlation),
+            { signal: extra.signal }
+          )
+        : onDesk
         ? await desk.runPromise(edge(callJob(name, args), correlation), {
             signal: extra.signal
           })
@@ -449,6 +466,7 @@ export const build = (
     await runtime.dispose()
     if (writing !== undefined) await writing.dispose()
     if (desk !== undefined) await desk.dispose()
+    if (catalogue !== undefined) await catalogue.dispose()
   }
 
   return server
@@ -459,11 +477,12 @@ export const serveOverStdio = (
   writes?: Writes,
   observed?: Observed,
   terms?: Layer.Layer<TerminologyPort>,
-  jobs?: Desked
+  jobs?: Desked,
+  catalog?: Catalogued
 ): Effect.Effect<Server, Error> =>
   Effect.tryPromise({
     try: async () => {
-      const server = build(engine, writes, observed, terms, jobs)
+      const server = build(engine, writes, observed, terms, jobs, catalog)
       await server.connect(new StdioServerTransport())
       return server
     },

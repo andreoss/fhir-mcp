@@ -19,6 +19,8 @@ import { Unavailable } from "../core/outcome.js"
 import type { Failure } from "../core/outcome.js"
 import type { Metrics } from "../obs/metrics.js"
 import type { TerminologyPort } from "../terminology/port.js"
+import { Catalog } from "../versions/port.js"
+import { VERSIONS } from "../versions/catalog.js"
 import { observed } from "./log.js"
 import { supplied } from "./terminology.js"
 import { binding, restrictionOf, startup } from "./wiring.js"
@@ -34,6 +36,7 @@ export type Wiring =
   | DepotPort
   | Unit
   | TerminologyPort
+  | Catalog
   | Metrics
 
 const connect = (path: string): Effect.Effect<DuckDBConnection, Failure, never> =>
@@ -96,9 +99,12 @@ export const trailed = (config: Config): Layer.Layer<Journal, Failure> =>
     })
   )
 
+export const catalogued: Layer.Layer<Catalog> = Layer.succeed(Catalog, VERSIONS)
+
 export const wiring = (config: Config): Layer.Layer<Wiring, Failure> =>
   Layer.mergeAll(
     served(config),
+    catalogued,
     Layer.succeed(Rules, defaults),
     grantOf(config, randomUUID()),
     trailed(config),

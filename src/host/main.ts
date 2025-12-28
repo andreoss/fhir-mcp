@@ -29,11 +29,11 @@ export const start = (
     const all = Layer.succeedContext(context)
     const writes = config.allowWrite ? all : undefined
     if (mode === "stdio") {
-      const server = yield* serveOverStdio(all, writes, all, undefined, writes)
+      const server = yield* serveOverStdio(all, writes, all, undefined, writes, all)
       yield* Effect.addFinalizer(() => Effect.promise(() => server.close()))
       return { mode, server, endpoint: undefined }
     }
-    const server = build(all, writes, all, undefined, writes)
+    const server = build(all, writes, all, undefined, writes, all)
     yield* Effect.addFinalizer(() => Effect.promise(() => server.close()))
     const bridge = yield* bridged(server)
     const options: Options = { deletable: true }

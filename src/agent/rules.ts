@@ -14,6 +14,11 @@ export const JOB_RULES =
   "hint, never with the job's result; poll job-status until the state settles; " +
   "job-cancel is a request, not an undo, so work already done stays done."
 
+export const VERSION_RULES =
+  "Operating rules: every version is named, so ask versions before naming one; " +
+  "a version carries only the types, search parameters and compartments it " +
+  "declares; a type one version drops is refused in that version, not empty."
+
 export const WRITE_RULES =
   "Operating rules: a write is refused when the grant does not cover it, " +
   "before it reaches the engine; every write is audited with its actor and " +

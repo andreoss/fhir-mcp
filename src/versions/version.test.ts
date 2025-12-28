@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { Effect, Exit } from "effect"
 import {
   compartmentIn,
+  compartmentsOf,
   definitionIn,
   hasType,
   model,
@@ -121,5 +122,15 @@ describe("a version model carries its own compartment definitions", () => {
     const result = await exit(compartmentIn(ONE, "encounter"))
     expect(tag(result)).toBe("Rejected")
     expect(reason(result)).toBe("encounter is not a compartment in 1.2.3")
+  })
+})
+
+describe("a version model names the compartments a type belongs to", () => {
+  it("names the compartment that carries the type", () => {
+    expect(compartmentsOf(ONE, "Patient")).toEqual(["patient"])
+  })
+
+  it("names none for a type no compartment carries", () => {
+    expect(compartmentsOf(ONE, "Coding")).toEqual([])
   })
 })

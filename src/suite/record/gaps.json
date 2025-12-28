@@ -14,6 +14,7 @@
     "src/agent/subject.ts",
     "src/agent/terminology.ts",
     "src/agent/tools.ts",
+    "src/agent/versions.ts",
     "src/agent/write.ts",
     "src/auth/algs.ts",
     "src/auth/audit.ts",
@@ -184,10 +185,11 @@
     "src/trail/templates.ts",
     "src/versions/catalog.ts",
     "src/versions/generate.ts",
+    "src/versions/port.ts",
     "src/versions/source.ts",
     "src/versions/version.ts"
   ],
-  "tests": 181,
+  "tests": 183,
   "tested": [
     "src/agent/audit.ts",
     "src/agent/bundle.ts",
@@ -202,6 +204,7 @@
     "src/agent/subject.ts",
     "src/agent/terminology.ts",
     "src/agent/tools.ts",
+    "src/agent/versions.ts",
     "src/agent/write.ts",
     "src/auth/audit.ts",
     "src/auth/bearer.ts",
@@ -376,6 +379,7 @@
     "src/tools/cli.ts",
     "src/trail/seal.ts",
     "src/trail/templates.ts",
+    "src/versions/port.ts",
     "src/versions/source.ts"
   ],
   "gaps": [
@@ -408,6 +412,11 @@
       "path": "src/agent/rules.ts",
       "reason": "unnamed",
       "name": "LOOKUP_RULES"
+    },
+    {
+      "path": "src/agent/rules.ts",
+      "reason": "unnamed",
+      "name": "VERSION_RULES"
     },
     {
       "path": "src/agent/rules.ts",
@@ -635,6 +644,11 @@
       "path": "src/host/compose.ts",
       "reason": "unnamed",
       "name": "toErrors"
+    },
+    {
+      "path": "src/host/compose.ts",
+      "reason": "unnamed",
+      "name": "catalogued"
     },
     {
       "path": "src/host/health.ts",

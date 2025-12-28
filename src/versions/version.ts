@@ -66,6 +66,14 @@ export const paramIn = (
       : Effect.succeed(held)
   })
 
+export const compartmentsOf = (
+  version: VersionModel,
+  type: string
+): ReadonlyArray<string> =>
+  version.compartments
+    .filter((one) => one.types[type] !== undefined)
+    .map((one) => one.code)
+
 export const compartmentIn = (
   version: VersionModel,
   code: string
