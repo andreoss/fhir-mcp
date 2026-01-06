@@ -9,12 +9,13 @@ import { FhirEngine } from "../core/engine.js"
 import { Versions } from "../core/interactions.js"
 import type { Failure } from "../core/outcome.js"
 import { Jobs } from "../jobs/service.js"
+import { Watchdog } from "../jobs/watchdog.js"
 import type { Status } from "../jobs/service.js"
 import { Metrics } from "../obs/metrics.js"
 import { TerminologyPort } from "../terminology/port.js"
 import { open } from "../trail/store.js"
 import { retryAfter } from "../persist/pool.js"
-import { STORE, connect, grantOf, journalToErrors, trailed, wiring } from "./compose.js"
+import { STORE, connect, grantOf, journalToErrors, served, trailed, wiring } from "./compose.js"
 import type { Opening, Wiring } from "./compose.js"
 import type { Config } from "../config/config.js"
 
@@ -228,6 +229,22 @@ describe("what the composition root binds", () => {
       }))
     expect(seen.state).toBe("done")
     expect(seen.done).toBe(1)
+  })
+
+  it("starts the jobs watchdog with the rest of the served surface", async () => {
+    const swept = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const context = yield* Layer.build(
+            Layer.orDie(served(config(true), { stalledEveryMs: 20, defragEveryMs: 20 }))
+          )
+          yield* Effect.sleep("150 millis")
+          return yield* Context.get(context, Watchdog).report
+        })
+      )
+    )
+    expect(swept.rounds).toBeGreaterThan(0)
+    expect(swept.faults).toBe(0)
   })
 
   it("serves an operations port that answers an operation by name", async () => {

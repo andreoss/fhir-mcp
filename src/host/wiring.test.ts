@@ -6,6 +6,7 @@ import type { Bundle, FhirResource } from "../core/engine.js"
 import { UNRESTRICTED } from "../engine/restriction.js"
 import { binding, restrictionOf, started, startup } from "./wiring.js"
 import type { Startup } from "./wiring.js"
+import { queueOn } from "../jobs/queue.js"
 import type { Config } from "../config/config.js"
 
 const config = (scopes: ReadonlyArray<string>): Config => ({
@@ -169,5 +170,64 @@ describe("the engine the wiring binds", () => {
     expect(await Effect.runPromise(engine.resourceTypes()))
       .toEqual(["Patient", "Observation", "Condition", "Encounter"])
     expect(await Effect.runPromise(engine.searchParameters("Patient"))).toContain("family")
+  })
+})
+
+describe("the watchdog the wiring starts", () => {
+  let watching: DuckDBConnection
+
+  beforeAll(async () => {
+    watching = await opened()
+  })
+
+  afterAll(() => {
+    watching.closeSync()
+  })
+
+  it("reclaims a job a dead worker still holds, with no operator action", async () => {
+    const swept = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const held = yield* startup(watching, {
+            stalledEveryMs: 20,
+            defragEveryMs: 600_000,
+            purgeEveryMs: 600_000
+          })
+          const queue = yield* queueOn(watching)
+          const id = yield* queue.submit({
+            kind: "unhandled",
+            payloads: ["{}"],
+            correlation: "c1",
+            maxAttempts: 2
+          })
+          const taken = yield* queue.lease("ghost", ["unhandled"], 10)
+          yield* Effect.sleep("150 millis")
+          const report = yield* held.vigil.report
+          const again = yield* queue.lease("next", ["unhandled"], 60_000)
+          return { id, taken: taken?.jobId, again: again?.jobId, report }
+        })
+      )
+    )
+    expect(swept.taken).toBe(swept.id)
+    expect(swept.report.reclaimed).toBeGreaterThan(0)
+    expect(swept.again).toBe(swept.id)
+  })
+
+  it("sweeps every kind on its own rounds and records no fault", async () => {
+    const report = await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const held = yield* startup(watching, {
+            stalledEveryMs: 20,
+            defragEveryMs: 20,
+            purgeEveryMs: 600_000
+          })
+          yield* Effect.sleep("150 millis")
+          return yield* held.vigil.report
+        })
+      )
+    )
+    expect(report.rounds).toBeGreaterThanOrEqual(2)
+    expect(report.faults).toBe(0)
   })
 })
