@@ -173,6 +173,17 @@ describe("the engine the wiring binds", () => {
   })
 })
 
+const awaited = <A>(read: Effect.Effect<A>, held: (found: A) => boolean): Effect.Effect<A> =>
+  Effect.gen(function* () {
+    const deadline = Date.now() + 10_000
+    let found = yield* read
+    while (!held(found) && Date.now() < deadline) {
+      yield* Effect.sleep("20 millis")
+      found = yield* read
+    }
+    return found
+  })
+
 describe("the watchdog the wiring starts", () => {
   let watching: DuckDBConnection
 
@@ -201,8 +212,7 @@ describe("the watchdog the wiring starts", () => {
             maxAttempts: 2
           })
           const taken = yield* queue.lease("ghost", ["unhandled"], 10)
-          yield* Effect.sleep("150 millis")
-          const report = yield* held.vigil.report
+          const report = yield* awaited(held.vigil.report, (one) => one.reclaimed > 0)
           const again = yield* queue.lease("next", ["unhandled"], 60_000)
           return { id, taken: taken?.jobId, again: again?.jobId, report }
         })
@@ -222,8 +232,7 @@ describe("the watchdog the wiring starts", () => {
             defragEveryMs: 20,
             purgeEveryMs: 600_000
           })
-          yield* Effect.sleep("150 millis")
-          return yield* held.vigil.report
+          return yield* awaited(held.vigil.report, (one) => one.rounds >= 2)
         })
       )
     )
