@@ -19,6 +19,12 @@ export const VERSION_RULES =
   "a version carries only the types, search parameters and compartments it " +
   "declares; a type one version drops is refused in that version, not empty."
 
+export const REPLACE_RULES =
+  "Operating rules: the incumbent store is opened read only and never written " +
+  "to; a migration into this store is refused unless the grant covers writes; " +
+  "a shadow run serves both sides and neither can affect the other; " +
+  "the acceptance gate is agreed before the run, not after it."
+
 export const WRITE_RULES =
   "Operating rules: a write is refused when the grant does not cover it, " +
   "before it reaches the engine; every write is audited with its actor and " +

@@ -22,6 +22,8 @@ import type { Ledger } from "../agent/audit.js"
 import type { Failure } from "../core/outcome.js"
 import type { Metrics } from "../obs/metrics.js"
 import type { TerminologyPort } from "../terminology/port.js"
+import { Incumbency } from "../replace/port.js"
+import { open as openedIncumbent } from "../replace/adapt.js"
 import { Catalog } from "../versions/port.js"
 import { VERSIONS } from "../versions/catalog.js"
 import { observed } from "./log.js"
@@ -39,6 +41,7 @@ export type Wiring =
   | DepotPort
   | Unit
   | TerminologyPort
+  | Incumbency
   | Catalog
   | Metrics
   | Watchdog
@@ -122,10 +125,13 @@ export const trailed = (config: Config): Layer.Layer<Journal, Failure> =>
 
 export const catalogued: Layer.Layer<Catalog> = Layer.succeed(Catalog, VERSIONS)
 
+export const incumbency: Layer.Layer<Incumbency> = Layer.succeed(Incumbency, openedIncumbent)
+
 export const wiring = (config: Config): Layer.Layer<Wiring, Failure> =>
   Layer.mergeAll(
     served(config),
     catalogued,
+    incumbency,
     Layer.succeed(Rules, defaults),
     grantOf(config, randomUUID()),
     trailed(config),
