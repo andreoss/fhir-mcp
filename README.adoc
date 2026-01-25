@@ -1,0 +1,63 @@
+= fhir-mcp
+
+An MCP server that exposes FHIR operations as tools, prompts and resources to
+AI agents. Data is kept in DuckDB; a remote FHIR/EMR backend can be fronted
+through the same surface. Config is environment-driven; writes are off by
+default.
+
+== Requirements
+* Node.js >= 22
+
+== Build
+[source,sh]
+----
+npm run build
+----
+
+== Run
+Stdio transport (default):
+[source,sh]
+----
+node dist/host/cli.js
+----
+
+HTTP transport:
+[source,sh]
+----
+FHIR_TRANSPORT=http \
+FHIR_HTTP_ORIGINS=https://example.org \
+node dist/host/cli.js
+----
+
+== Configuration
+- `FHIR_TRANSPORT` - `stdio` (default) or `http`.
+- `FHIR_HTTP_HOST` - listen host, `127.0.0.1` by default.
+- `FHIR_HTTP_PORT` - listen port, `8080` by default.
+- `FHIR_HTTP_ORIGINS` - comma-separated origin allow list; required for http.
+- `FHIR_STORE_PATH` - DuckDB file, `:memory:` by default.
+- `FHIR_ALLOW_WRITE` - `false` by default; writes stay disabled unless `true`.
+- `FHIR_SCOPES` - named grants that may search.
+- `FHIR_TERMINOLOGY_DIR` - directory of terminology to serve.
+- `FHIR_INCUMBENT_PATH` - readiness to replace an incumbent store.
+- `FHIR_LOG_LEVEL` - `debug`, `info`, `warn` or `error`.
+- `FHIR_TRAIL_PATH`, `FHIR_TRAIL_KEY` - durable, sealed audit trail.
+- `FHIR_EMR_*` - optional EMR backend: name, base URL, auth scheme and keys.
+
+== Operations
+[source,sh]
+----
+npm run tools health
+npm run tools migrate latest [--store path]
+npm run tools data import --in file [--store path]
+npm run tools data export [--out file] [--store path]
+npm run tools bench
+npm run tools scaffold
+----
+
+== Test
+[source,sh]
+----
+npm test
+npm run typecheck
+npm run coverage -- --coverage.thresholds.lines 85
+----
