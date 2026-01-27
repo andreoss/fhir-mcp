@@ -33,6 +33,12 @@ interface CapabilityStatement {
   readonly rest?: ReadonlyArray<{ readonly resource?: ReadonlyArray<ResourceDef> }>
 }
 
+interface SearchPage extends Bundle {
+  readonly link?: ReadonlyArray<{ readonly relation?: string; readonly url?: string }>
+}
+
+const MOST_PAGES = 100
+
 export const bearerCredit = (token: string): Credit => () =>
   Effect.succeed({ authorization: `Bearer ${token}` })
 
@@ -63,7 +69,7 @@ export const remote = (options: RemoteOptions): Engine => {
       const extra = yield* options.credit()
       return yield* options.send({
         method,
-        url: `${options.baseUrl}/${path}`,
+        url: /^https?:\/\//.test(path) ? path : `${options.baseUrl}/${path}`,
         headers: { accept: "application/fhir+json", ...Object.fromEntries(Object.entries(extra)) },
         bound: options.bound
       })
@@ -85,37 +91,86 @@ export const remote = (options: RemoteOptions): Engine => {
       })
     )
 
+  const complaint = (doc: Record<string, unknown> | undefined): string | undefined => {
+    if (doc === undefined || doc["resourceType"] !== "OperationOutcome") return undefined
+    const issues = doc["issue"]
+    if (!Array.isArray(issues) || issues.length === 0) return undefined
+    const first = issues[0] as Record<string, unknown>
+    return typeof first["diagnostics"] === "string" ? first["diagnostics"] : undefined
+  }
+
+  const bundleOf = (type: string, answer: Answer): Effect.Effect<SearchPage, Failure> => {
+    const doc = jsonOf(answer.body)
+    if (answer.status !== 200) {
+      const said = complaint(doc)
+      return Effect.fail(
+        new Rejected({
+          reason:
+            `search ${type} answered ${answer.status}` + (said === undefined ? "" : `: ${said}`)
+        })
+      )
+    }
+    if (doc === undefined) {
+      return Effect.fail(new Rejected({ reason: "the answer was not json" }))
+    }
+    if (doc["resourceType"] !== "Bundle") {
+      return Effect.fail(new Rejected({ reason: "the answer was not a bundle" }))
+    }
+    return Effect.succeed(doc as unknown as SearchPage)
+  }
+
+  const nextOf = (page: SearchPage): string | undefined =>
+    (page.link ?? []).find((one) => one.relation === "next")?.url
+
   const search = (query: SearchQuery) =>
     Effect.gen(function* () {
+      const offset = query.offset ?? 0
       const params = new URLSearchParams()
       for (const [name, value] of query.parameters) params.append(name, value)
-      if (query.offset !== undefined) params.set("_offset", String(query.offset))
-      if (query.limit !== undefined) params.set("_count", String(query.limit))
+      if (query.limit !== undefined) params.set("_count", String(offset + query.limit))
       const queryString = params.toString()
-      const answer = yield* call("GET", queryString.length > 0 ? `${query.type}?${queryString}` : query.type)
-      const doc: unknown = jsonOf(answer.body)
-      if (doc === undefined) {
-        return yield* Effect.fail(new Rejected({ reason: "the answer was not json" }))
+      const first = yield* bundleOf(
+        query.type,
+        yield* call("GET", queryString.length > 0 ? `${query.type}?${queryString}` : query.type)
+      )
+      const wanted = query.limit === undefined ? undefined : offset + query.limit
+      const entries = [...(first.entry ?? [])]
+      let page = first
+      let pages = 1
+      while (pages < MOST_PAGES && (wanted === undefined || entries.length < wanted)) {
+        const next = nextOf(page)
+        if (next === undefined) break
+        page = yield* bundleOf(query.type, yield* call("GET", next))
+        entries.push(...(page.entry ?? []))
+        pages += 1
       }
-      if (typeof doc === "object" && doc !== null && (doc as Record<string, unknown>)["resourceType"] !== "Bundle") {
-        return yield* Effect.fail(new Rejected({ reason: "the answer was not a bundle" }))
-      }
-      return doc as unknown as Bundle
+      const kept = wanted === undefined ? entries.slice(offset) : entries.slice(offset, wanted)
+      return {
+        resourceType: "Bundle",
+        type: "searchset",
+        total: first.total ?? entries.length,
+        entry: kept
+      } satisfies Bundle
     })
 
+  let known: CapabilityStatement | undefined
+
   const metadata = () =>
-    call("GET", "metadata").pipe(
-      Effect.flatMap((answer): Effect.Effect<CapabilityStatement, Failure> => {
-        const doc = jsonOf(answer.body)
-        if (answer.status !== 200 || doc === undefined) {
-          return Effect.fail(new Rejected({ reason: "the capability statement was refused" }))
-        }
-        if (doc["resourceType"] !== "CapabilityStatement") {
-          return Effect.fail(new Rejected({ reason: "the answer was not a capability statement" }))
-        }
-        return Effect.succeed(doc as unknown as CapabilityStatement)
-      })
-    )
+    known !== undefined
+      ? Effect.succeed(known)
+      : call("GET", "metadata").pipe(
+          Effect.flatMap((answer): Effect.Effect<CapabilityStatement, Failure> => {
+            const doc = jsonOf(answer.body)
+            if (answer.status !== 200 || doc === undefined) {
+              return Effect.fail(new Rejected({ reason: "the capability statement was refused" }))
+            }
+            if (doc["resourceType"] !== "CapabilityStatement") {
+              return Effect.fail(new Rejected({ reason: "the answer was not a capability statement" }))
+            }
+            known = doc as unknown as CapabilityStatement
+            return Effect.succeed(known)
+          })
+        )
 
   const definedTypes = (doc: CapabilityStatement): ReadonlyArray<string> =>
     (doc.rest ?? []).flatMap((rest) =>

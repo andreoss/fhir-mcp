@@ -97,7 +97,7 @@ describe("adapter search", () => {
     const fake = transportOf(() => answer(200, JSON.stringify(bundle)))
     const engine = remote({ baseUrl: "https://emr.example/fhir", bound: BOUND, credit: creditNone, send: fake.send })
     const found = await Effect.runPromise(
-      engine.search({ type: "Patient", parameters: [["name", "Doe"]], offset: 10, limit: 5 })
+      engine.search({ type: "Patient", parameters: [["name", "Doe"]], offset: 0, limit: 5 })
     )
     expect(found.resourceType).toBe("Bundle")
     expect(found.total).toBe(2)
@@ -105,7 +105,54 @@ describe("adapter search", () => {
     const url = fake.seen[0]?.url ?? ""
     expect(url).toContain("name=Doe")
     expect(url).toContain("_count=5")
-    expect(url).toContain("_offset=10")
+    expect(url).not.toContain("_offset")
+  })
+
+  it("serves an offset by dropping the entries before it", async () => {
+    const fake = transportOf(() => answer(200, JSON.stringify(bundle)))
+    const engine = remote({ baseUrl: "https://emr.example/fhir", bound: BOUND, credit: creditNone, send: fake.send })
+    const found = await Effect.runPromise(
+      engine.search({ type: "Patient", parameters: [], offset: 1, limit: 1 })
+    )
+    expect(found.total).toBe(2)
+    expect(found.entry?.map((one) => one.resource.id)).toEqual(["p2"])
+    expect(fake.seen[0]?.url ?? "").toContain("_count=2")
+  })
+
+  it("follows the next link until the page is filled", async () => {
+    const second = "https://emr.example/fhir/Patient?ct=abc"
+    const fake = transportOf((sent) =>
+      sent.url === second
+        ? answer(200, JSON.stringify({ resourceType: "Bundle", type: "searchset", total: 2, entry: [{ resource: { resourceType: "Patient", id: "p2" } }] }))
+        : answer(200, JSON.stringify({
+            resourceType: "Bundle",
+            type: "searchset",
+            total: 2,
+            entry: [{ resource: resource }],
+            link: [{ relation: "next", url: second }]
+          }))
+    )
+    const engine = remote({ baseUrl: "https://emr.example/fhir", bound: BOUND, credit: creditNone, send: fake.send })
+    const found = await Effect.runPromise(
+      engine.search({ type: "Patient", parameters: [], offset: 1, limit: 1 })
+    )
+    expect(fake.seen.map((one) => one.url)).toEqual([
+      "https://emr.example/fhir/Patient?_count=2",
+      second
+    ])
+    expect(found.entry?.map((one) => one.resource.id)).toEqual(["p2"])
+  })
+
+  it("names the status the upstream answered on refusal", async () => {
+    const outcome = { resourceType: "OperationOutcome", issue: [{ severity: "error", diagnostics: "unsupported parameter" }] }
+    const fake = transportOf(() => answer(400, JSON.stringify(outcome)))
+    const engine = remote({ baseUrl: "https://emr.example/fhir", bound: BOUND, credit: creditNone, send: fake.send })
+    const exit = await Effect.runPromiseExit(engine.search({ type: "Patient", parameters: [] }))
+    if (exit._tag === "Failure" && exit.cause._tag === "Fail" && exit.cause.error._tag === "Rejected") {
+      expect(exit.cause.error.reason).toBe("search Patient answered 400: unsupported parameter")
+    } else {
+      throw new Error("expected Rejected")
+    }
   })
 
   it("parses only a searchset bundle", async () => {
