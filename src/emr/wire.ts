@@ -148,8 +148,8 @@ export const over = (opener: Opener): Transport => ({
 
       if (request.body !== undefined) {
         socket.write(request.body)
-        socket.end()
       }
+      socket.end()
     })
 })
 
