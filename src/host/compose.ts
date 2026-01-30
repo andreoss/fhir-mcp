@@ -28,7 +28,7 @@ import { Catalog } from "../versions/port.js"
 import { VERSIONS } from "../versions/catalog.js"
 import { observed } from "./log.js"
 import { supplied } from "./terminology.js"
-import { binding, restrictionOf, startup } from "./wiring.js"
+import { engineOf, restrictionOf, startup } from "./wiring.js"
 
 export type Wiring =
   | FhirEngine
@@ -84,7 +84,7 @@ export const served = (
     Effect.gen(function* () {
       const held = yield* startup(yield* connect(config.store.path), vigil)
       const restriction = restrictionOf(config)
-      const engine = binding(held, restriction)
+      const engine = engineOf(held, restriction, config)
       return Context.make(FhirEngine, engine).pipe(
         Context.add(FhirOperations, operationsOn(
           recordsOn(held.deps.connection),
