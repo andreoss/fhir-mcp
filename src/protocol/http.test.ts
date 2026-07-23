@@ -19,6 +19,7 @@ const config = (
   scopes: [],
   terminologyDir: undefined,
   logLevel: "info",
+  callDeadlineMs: 30_000,
   trail: { path: ":memory:", key: "", retentionMs: 0 }
 })
 
@@ -709,6 +710,7 @@ describe("streamable http transport", () => {
       scopes: [],
       terminologyDir: undefined,
       logLevel: "info",
+      callDeadlineMs: 30_000,
       trail: { path: ":memory:", key: "", retentionMs: 0 }
     }
     const exit = await Effect.runPromiseExit(serve(taken, handler))

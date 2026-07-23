@@ -1,4 +1,4 @@
-import { Effect, Layer, ManagedRuntime } from "effect"
+import { Cause, Effect, Exit, Layer, ManagedRuntime, Option } from "effect"
 import { randomUUID } from "node:crypto"
 import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
@@ -38,10 +38,11 @@ import { Catalog } from "../versions/port.js"
 import { statements } from "../conformance/capability.js"
 import { REGISTRIES, versions } from "../conformance/versions.js"
 import type { Rules, Versions } from "../core/interactions.js"
+import type { Failure } from "../core/outcome.js"
 import { edge } from "../obs/correlation.js"
 import { Metrics } from "../obs/metrics.js"
 import { PINNED_REVISION, capabilities, negotiate } from "./revision.js"
-import { paginate } from "./cursor.js"
+import { PAGE_SIZE, paginate } from "./cursor.js"
 import { TEMPLATES, address, uriOf } from "./resources.js"
 import type { ResourceEntry } from "./resources.js"
 import { Session } from "./session.js"
@@ -49,6 +50,8 @@ import { briefed, draft } from "./sampling.js"
 import { completeArgument, render, workflows } from "./prompts.js"
 import { INSTRUCTIONS } from "./instructions.js"
 import { NAME, VERSION } from "./version.js"
+
+const RESOURCE_NOT_FOUND = -32002
 
 const writeNames = new Set(writeTools.map((tool) => tool.name))
 
@@ -258,9 +261,19 @@ export const build = (
             { signal: extra.signal }
           )
         : onDesk
-        ? await desk.runPromise(edge(callJob(name, args), correlation), {
-            signal: extra.signal
-          })
+        ? await desk.runPromise(
+            edge(
+              writing === undefined
+                ? callJob(name, args)
+                : Effect.flatMap(
+                    Effect.promise(() => writing.runPromise(Grant)),
+                    (held) =>
+                      Effect.provideService(callJob(name, args), Grant, { ...held, correlation })
+                  ),
+              correlation
+            ),
+            { signal: extra.signal }
+          )
         : onReplace
           ? await incumbent.runPromise(
               Effect.flatMap(Grant, (held) =>
@@ -452,23 +465,37 @@ export const build = (
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const uri = request.params.uri
     const at = address(uri)
-    if (at === undefined || at.id === undefined) {
+    if (at === undefined) {
       throw new McpError(ErrorCode.InvalidParams, `unreadable uri: ${uri}`)
     }
     const type = at.type
     const id = at.id
-    try {
-      const resource = await runtime.runPromise(
-        edge(Effect.flatMap(FhirEngine, (held) => held.read(type, id)), randomUUID())
+    const found = await runtime.runPromiseExit(
+      edge(
+        Effect.flatMap(FhirEngine, (held): Effect.Effect<unknown, Failure> =>
+          id === undefined
+            ? held.search({ type, parameters: [], limit: PAGE_SIZE })
+            : held.read(type, id)
+        ),
+        randomUUID()
       )
-      return {
-        contents: [{ uri, mimeType: "application/fhir+json", text: JSON.stringify(resource) }]
+    )
+    if (Exit.isFailure(found)) {
+      const failure = Cause.failureOption(found.cause)
+      if (
+        Option.isSome(failure) &&
+        (failure.value._tag === "NotFound" || failure.value._tag === "Gone")
+      ) {
+        throw new McpError(RESOURCE_NOT_FOUND, `resource not found: ${uri}`)
       }
-    } catch (cause) {
-      throw new McpError(
-        ErrorCode.InternalError,
-        `read ${uri} failed: ${cause instanceof Error ? cause.message : "unknown cause"}`
-      )
+      throw new McpError(ErrorCode.InternalError, `read ${uri} failed`)
+    }
+    const resource = found.value as { readonly meta?: { readonly versionId?: unknown } }
+    if (at.version !== undefined && String(resource.meta?.versionId) !== at.version) {
+      throw new McpError(RESOURCE_NOT_FOUND, `version not served: ${uri}`)
+    }
+    return {
+      contents: [{ uri, mimeType: "application/fhir+json", text: JSON.stringify(resource) }]
     }
   })
 

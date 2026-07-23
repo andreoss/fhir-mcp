@@ -6,6 +6,10 @@ import { InitializeResultSchema } from "@modelcontextprotocol/sdk/types.js"
 import { FhirEngine } from "../core/engine.js"
 import type { Engine } from "../core/engine.js"
 import { NotFound } from "../core/outcome.js"
+import { Rules, Versions, defaults } from "../core/interactions.js"
+import { Grant, Journal } from "../agent/write.js"
+import { Unit, loose } from "../bundle/unit.js"
+import type { Entry } from "../agent/audit.js"
 import { DepotPort } from "../bulk/depot.js"
 import type { Depot, Fault, Sheet } from "../bulk/depot.js"
 import { open } from "../jobs/queue.js"
@@ -13,6 +17,7 @@ import { Jobs, desk } from "../jobs/service.js"
 import { registry } from "../jobs/types.js"
 import { PINNED_REVISION } from "./revision.js"
 import { build } from "./server.js"
+import type { Writes } from "./server.js"
 
 const engine: Layer.Layer<FhirEngine> = Layer.succeed(FhirEngine, {
   read: (type, id) =>
@@ -57,9 +62,18 @@ const deskOn: Layer.Layer<Jobs | DepotPort> = Layer.merge(
   )
 )
 
-const dial = async (jobs?: Layer.Layer<Jobs | DepotPort>) => {
+const writes: Writes =
+  Layer.mergeAll(
+    Layer.succeed(Versions, {} as never),
+    Layer.succeed(Rules, defaults),
+    Layer.succeed(Grant, { write: true, correlation: "wire" }),
+    Layer.succeed(Unit, loose),
+    Layer.succeed(Journal, { note: (_entry: Entry) => Effect.void })
+  )
+
+const dial = async (jobs?: Layer.Layer<Jobs | DepotPort>, writable = true) => {
   const [a, b] = InMemoryTransport.createLinkedPair()
-  const server = build(engine, undefined, undefined, undefined, jobs)
+  const server = build(engine, writable ? writes : undefined, undefined, undefined, jobs)
   const client = new Client({ name: "probe", version: "0" })
   await Promise.all([server.connect(b), client.connect(a)])
   await client.request(
@@ -189,6 +203,29 @@ describe("JOB-02 the job desk on the served surface", () => {
     const called = await client.callTool({
       name: "job-output",
       arguments: { id, path: `export/${id}/Observation-0.ndjson` }
+    })
+    expect(called.isError).toBe(true)
+    expect(body(called)["resourceType"]).toBe("OperationOutcome")
+    await close()
+  })
+})
+
+describe("JOB-02 job writes over the wire", () => {
+  it("submits a writing job on a writable server", async () => {
+    const { client, close } = await dial(deskOn)
+    const called = await client.callTool({
+      name: "job-submit",
+      arguments: { kind: "reindex", request: "a" }
+    })
+    expect(called.isError).toBe(false)
+    await close()
+  })
+
+  it("refuses a writing job on a read-only server", async () => {
+    const { client, close } = await dial(deskOn, false)
+    const called = await client.callTool({
+      name: "job-submit",
+      arguments: { kind: "reindex", request: "a" }
     })
     expect(called.isError).toBe(true)
     expect(body(called)["resourceType"]).toBe("OperationOutcome")

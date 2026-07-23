@@ -27,7 +27,7 @@ describe("protocol revision", () => {
   it("declares only capabilities that are served", () => {
     expect(capabilities()).toEqual({
       tools: { listChanged: false },
-      resources: { subscribe: true, listChanged: true },
+      resources: { subscribe: false, listChanged: true },
       prompts: { listChanged: false },
       completions: {},
       logging: {}

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { createServer } from "node:net"
-import { Effect, Exit, Scope } from "effect"
-import { start } from "./main.js"
+import { Cause, Effect, Exit, Scope } from "effect"
+import { overlaid, start } from "./main.js"
 import type { Running } from "./main.js"
 
 const ORIGIN = "https://client.example"
@@ -70,6 +70,14 @@ describe("composition root", () => {
     expect(reason(await attempt({ FHIR_TRANSPORT: "http" }))).toContain("FHIR_HTTP_ORIGINS")
   })
 
+  it("reports a store it cannot open as a failure, not a defect", async () => {
+    const exit = await attempt({
+      FHIR_TRANSPORT: "stdio",
+      FHIR_STORE_PATH: "/nonexistent/deep/dir/store.duckdb"
+    })
+    expect(Exit.isFailure(exit) && Cause.isFailure(exit.cause) && !Cause.isDie(exit.cause)).toBe(true)
+  })
+
   it("builds a running server over the transport it does serve", async () => {
     const original = process.stdout.write.bind(process.stdout)
     process.stdout.write = (() => true) as typeof process.stdout.write
@@ -112,5 +120,39 @@ describe("composition root", () => {
         body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} })
       })
     ).rejects.toBeDefined()
+  })
+})
+
+describe("command line overlay", () => {
+  it("overrides the transport and log level from separate values", () => {
+    const env = overlaid({ FHIR_TRANSPORT: "stdio" }, ["--transport", "http", "--log-level", "debug"])
+    expect(env.FHIR_TRANSPORT).toBe("http")
+    expect(env.FHIR_LOG_LEVEL).toBe("debug")
+  })
+
+  it("overrides from joined values", () => {
+    const env = overlaid({}, ["--transport=https", "--log-level=warn"])
+    expect(env.FHIR_TRANSPORT).toBe("https")
+    expect(env.FHIR_LOG_LEVEL).toBe("warn")
+  })
+
+  it("keeps the environment when no flag is given", () => {
+    expect(overlaid({ FHIR_TRANSPORT: "http" }, ["--other", "x"])).toEqual({ FHIR_TRANSPORT: "http" })
+  })
+
+  it("sets a flag missing its value to the flag name so config refuses it by name", async () => {
+    const env = overlaid({}, ["--transport", "--log-level"])
+    expect(env.FHIR_TRANSPORT).toBe("--transport")
+    expect(env.FHIR_LOG_LEVEL).toBe("--log-level")
+    expect(overlaid({}, ["--transport="]).FHIR_TRANSPORT).toBe("--transport")
+    expect(reason(await attempt(overlaid({}, ["--transport"])))).toContain("FHIR_TRANSPORT")
+  })
+
+  it("leaves the given environment untouched", () => {
+    const env = { FHIR_TRANSPORT: "stdio" }
+    const before = process.env.FHIR_TRANSPORT
+    overlaid(env, ["--transport", "http"])
+    expect(env).toEqual({ FHIR_TRANSPORT: "stdio" })
+    expect(process.env.FHIR_TRANSPORT).toBe(before)
   })
 })

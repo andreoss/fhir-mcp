@@ -59,7 +59,7 @@ describe("handshake", () => {
     const result = await initializeWith(PINNED_REVISION)
     expect(result["capabilities"]).toEqual({
       tools: { listChanged: false },
-      resources: { subscribe: true, listChanged: true },
+      resources: { subscribe: false, listChanged: true },
       prompts: { listChanged: false },
       completions: {},
       logging: {}

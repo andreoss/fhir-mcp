@@ -47,6 +47,13 @@ const Fields = Schema.Struct({
   FHIR_LOG_LEVEL: Schema.optionalWith(oneOf("debug", "info", "warn", "error"), {
     default: () => "info" as const
   }),
+  FHIR_CALL_DEADLINE_MS: Schema.optionalWith(
+    Schema.NumberFromString.pipe(Schema.int(), Schema.positive()).annotations({
+      message: (issue) =>
+        `expected a positive whole number of milliseconds, got ${JSON.stringify(issue.actual)}`
+    }),
+    { default: () => 30_000 }
+  ),
   FHIR_TRAIL_PATH: Schema.optionalWith(Schema.String, { default: () => ":memory:" }),
   FHIR_TRAIL_KEY: Schema.optional(Schema.String),
   FHIR_TRAIL_RETENTION_MS: Schema.optionalWith(
@@ -95,6 +102,7 @@ export interface Config {
   readonly terminologyDir: string | undefined
   readonly incumbentPath?: string
   readonly logLevel: LogLevel
+  readonly callDeadlineMs: number
   readonly trail: { readonly path: string; readonly key: string; readonly retentionMs: number }
   readonly emr?: BackendConfig
 }
@@ -165,6 +173,7 @@ const shape = (decoded: typeof Fields.Type, trailKey: string): Config => ({
     ? {}
     : { incumbentPath: decoded.FHIR_INCUMBENT_PATH }),
   logLevel: decoded.FHIR_LOG_LEVEL,
+  callDeadlineMs: decoded.FHIR_CALL_DEADLINE_MS,
   trail: {
     path: decoded.FHIR_TRAIL_PATH,
     key: trailKey ?? "",

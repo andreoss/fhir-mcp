@@ -29,12 +29,15 @@ Environment only; an invalid value stops start-up with every problem listed.
 - `FHIR_TERMINOLOGY_DIR` - directory of code system files.
 - `FHIR_INCUMBENT_PATH` - incumbent store for the replacement tools.
 - `FHIR_LOG_LEVEL` - `debug`, `info` (default), `warn`, `error`.
+- `FHIR_CALL_DEADLINE_MS` - per-call deadline, `30000` by default.
 - `FHIR_TRAIL_PATH`, `FHIR_TRAIL_KEY`, `FHIR_TRAIL_RETENTION_MS` - sealed
   audit trail; a durable path needs the key.
 - `FHIR_SECRET_KEY` - opens `enc:v1:` values in key and credential variables.
 - `FHIR_EMR_*` - EMR backend: `BACKEND`, `BASE_URL`, `PROVIDER` (`generic`,
   `smart`), `TIMEOUT_MS`, `RETRY_AFTER_MS`, `AUTH_SCHEME` (`none`, `bearer`,
   `basic`, `smart`) and the `AUTH_*` credentials of that scheme.
+
+`--transport` and `--log-level` override the matching variables.
 
 == Operations
 `npm run tools -- --help` lists the commands: `migrate`, `data`, `bench`,

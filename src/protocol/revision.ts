@@ -20,7 +20,7 @@ export interface Capabilities {
 
 export const capabilities = (): Capabilities => ({
   tools: { listChanged: false },
-  resources: { subscribe: true, listChanged: true },
+  resources: { subscribe: false, listChanged: true },
   prompts: { listChanged: false },
   completions: {},
   logging: {}

@@ -1,3 +1,3 @@
 import { main } from "./main.js"
 
-await main()
+await main(process.argv.slice(2))

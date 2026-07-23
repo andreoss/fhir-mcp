@@ -16,7 +16,7 @@ const mutable: string[] = ["Patient"]
 const engine: Layer.Layer<FhirEngine> = Layer.succeed(FhirEngine, {
   read: (type, id) =>
     type === "Patient" && id === "p1"
-      ? Effect.succeed({ resourceType: "Patient", id: "p1" })
+      ? Effect.succeed({ resourceType: "Patient", id: "p1", meta: { versionId: "1" } })
       : Effect.fail(new NotFound({ type, id })),
   search: () => Effect.succeed({ resourceType: "Bundle", type: "searchset", entry: [] }),
   resourceTypes: () => Effect.succeed([...mutable]),
@@ -72,6 +72,32 @@ describe("protocol resources", () => {
     const { client, close } = await dial()
     expect((await readAs(client, "fhir://Patient/p1"))["resourceType"]).toBe("Patient")
     expect((await readAs(client, "fhir://Patient/p1/_history/1"))["resourceType"]).toBe("Patient")
+    await close()
+  })
+
+  it("reads a listed type address as a page of that type", async () => {
+    const { client, close } = await dial()
+    const listed = await client.listResources()
+    const uri = listed.resources[0]?.uri ?? ""
+    expect((await readAs(client, uri))["resourceType"]).toBe("Bundle")
+    await close()
+  })
+
+  it("refuses a version it does not hold as not found", async () => {
+    const { client, close } = await dial()
+    const refused = await client
+      .readResource({ uri: "fhir://Patient/p1/_history/2" })
+      .catch((error: unknown) => error)
+    expect((refused as { code?: unknown }).code).toBe(-32002)
+    await close()
+  })
+
+  it("refuses a resource it does not hold as not found", async () => {
+    const { client, close } = await dial()
+    const refused = await client
+      .readResource({ uri: "fhir://Patient/absent" })
+      .catch((error: unknown) => error)
+    expect((refused as { code?: unknown }).code).toBe(-32002)
     await close()
   })
 

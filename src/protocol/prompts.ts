@@ -131,7 +131,7 @@ export const validate = (
         flaws.push({ prompt: prompt.name, reason: `tool not served: ${use.tool}` })
         continue
       }
-      const known = new Set(Object.keys(tool.inputSchema.properties))
+      const known = new Set(Object.keys(tool.inputSchema.properties ?? {}))
       for (const argument of use.arguments) {
         if (!known.has(argument)) {
           flaws.push({ prompt: prompt.name, reason: `argument not on ${use.tool}: ${argument}` })

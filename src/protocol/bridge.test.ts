@@ -21,6 +21,7 @@ const config: Config = {
   scopes: [],
   terminologyDir: undefined,
   logLevel: "info",
+  callDeadlineMs: 30_000,
   trail: { path: ":memory:", key: "", retentionMs: 0 }
 }
 

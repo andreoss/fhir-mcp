@@ -10,6 +10,7 @@ import { Unit } from "../bundle/unit.js"
 import { Rules, Versions, defaults } from "../core/interactions.js"
 import { FhirEngine } from "../core/engine.js"
 import { FhirOperations } from "../agent/tools.js"
+import { Deadline } from "../agent/tools.js"
 import { Jobs } from "../jobs/service.js"
 import { Watchdog } from "../jobs/watchdog.js"
 import type { Vigil } from "../jobs/watchdog.js"
@@ -45,6 +46,7 @@ export type Wiring =
   | Catalog
   | Metrics
   | Watchdog
+  | Deadline
 
 export const STORE: Budget = {
   size: 1,
@@ -136,5 +138,6 @@ export const wiring = (config: Config): Layer.Layer<Wiring, Failure> =>
     grantOf(config, randomUUID()),
     trailed(config),
     supplied(config.terminologyDir),
-    observed(config.logLevel)
+    observed(config.logLevel),
+    Layer.succeed(Deadline, { millis: config.callDeadlineMs })
   )

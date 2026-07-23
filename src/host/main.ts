@@ -25,7 +25,7 @@ export const start = (
   Effect.gen(function* () {
     const mode = modeOf(env)
     const config = yield* load(asConfigured(env, mode))
-    const context = yield* Layer.build(Layer.orDie(wiring(config)))
+    const context = yield* Layer.build(wiring(config))
     const all = Layer.succeedContext(context)
     const writes = config.allowWrite ? all : undefined
     const replacing = config.incumbentPath === undefined ? undefined : all
@@ -46,10 +46,35 @@ export const start = (
     return { mode, server, endpoint }
   })
 
-export const main = (): Promise<void> =>
+const FLAGS: Readonly<Record<string, string>> = {
+  "--transport": "FHIR_TRANSPORT",
+  "--log-level": "FHIR_LOG_LEVEL"
+}
+
+export const overlaid = (
+  env: Record<string, string | undefined>,
+  argv: ReadonlyArray<string>
+): Record<string, string | undefined> => {
+  const merged = { ...env }
+  for (let at = 0; at < argv.length; at += 1) {
+    const arg = argv[at] ?? ""
+    const cut = arg.indexOf("=")
+    const flag = cut < 0 ? arg : arg.slice(0, cut)
+    const key = FLAGS[flag]
+    if (key === undefined) continue
+    const next = argv[at + 1]
+    const value =
+      cut >= 0 ? arg.slice(cut + 1) : next === undefined || next.startsWith("--") ? "" : next
+    if (cut < 0 && value !== "") at += 1
+    merged[key] = value === "" ? flag : value
+  }
+  return merged
+}
+
+export const main = (argv: ReadonlyArray<string> = []): Promise<void> =>
   Effect.runPromise(
     Effect.scoped(
-      start(process.env).pipe(
+      start(overlaid(process.env, argv)).pipe(
         Effect.flatMap(() => Effect.never),
         Effect.catchAll((error) =>
           Effect.sync(() => {

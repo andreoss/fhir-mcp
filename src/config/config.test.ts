@@ -54,6 +54,11 @@ describe("config", () => {
     expect(error.problems[0]).toContain("http")
   })
 
+  it("refuses a transport it does not serve", () => {
+    const error = failure(run({ FHIR_TRANSPORT: "sse" }))
+    expect(error.problems[0]).toContain("FHIR_TRANSPORT")
+  })
+
   it("names the key when a number is not a number", () => {
     const error = failure(run({ FHIR_HTTP_PORT: "eighty" }))
     expect(error.problems[0]).toContain("FHIR_HTTP_PORT")
