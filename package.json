@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@duckdb/node-api": "1.5.5-r.4",
-    "@modelcontextprotocol/sdk": "1.30.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "effect": "3.22.1"
   },
   "devDependencies": {
