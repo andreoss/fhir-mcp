@@ -1,44 +1,51 @@
 = fhir-mcp
 
-An MCP server that exposes FHIR operations to AI agents as tools, prompts and
-resources. Data is kept in DuckDB; a remote FHIR/EMR backend can be fronted
-through the same surface. Requires Node.js >= 22. The image is described in
-xref:docker/README.adoc[].
+An MCP server that gives AI agents FHIR tools, prompts and resources over a
+DuckDB store or a remote EMR. Node.js >= 22; image: xref:docker/README.adoc[].
 
-== Build, run, test
 [source,sh]
 ----
-npm run build
-node dist/host/cli.js                                  # stdio
-FHIR_TRANSPORT=http FHIR_HTTP_ORIGINS=https://example.org \
-  node dist/host/cli.js                                # http, endpoint /mcp
+npm run build && node dist/host/cli.js     # stdio; http: FHIR_TRANSPORT=http
 npm test && npm run typecheck && npm run coverage
 ----
 
+== Tools
+[cols="1,3,2"]
+|===
+| Tool | Does | Served
+
+| `read` | One resource by type and id, or an operation on it | always
+| `search` | One resource type, or an operation on the type | always
+| `capabilities` | Served types, their parameters and operations | always
+| `versions`, `version` | Served FHIR versions; one version's types, elements, parameters, compartments | always
+| `create`, `update`, `delete`, `patch` | Write one resource; conditional by criteria | `FHIR_ALLOW_WRITE=true`
+| `transaction`, `batch` | Apply a bundle all-or-nothing, or entry by entry | `FHIR_ALLOW_WRITE=true`
+| `job-submit`, `job-status`, `job-cancel`, `job-output` | Asynchronous export, import, bulk delete/update, reindex | `FHIR_ALLOW_WRITE=true`
+| `replace-survey`, `replace-migrate`, `replace-shadow` | Survey, migrate from and compare against an incumbent store | `FHIR_INCUMBENT_PATH` set
+| `lookup` | Code to display through loaded terminology | not yet wired by the host
+|===
+
 == Configuration
-Environment only; an invalid value stops start-up with every problem listed.
+Environment only; `--transport` and `--log-level` override theirs. An invalid
+value stops start-up with every problem listed.
 
-- `FHIR_TRANSPORT` - `stdio` (default), `http` or `https`.
-- `FHIR_HTTP_HOST`, `FHIR_HTTP_PORT` - `127.0.0.1`, `8080`.
-- `FHIR_HTTP_ORIGINS` - comma-separated allowed origins, required over http;
-  any other `Origin` gets 403.
-- `FHIR_TLS_CERT_FILE`, `FHIR_TLS_KEY_FILE`, `FHIR_TLS_PASSPHRASE` - https.
-- `FHIR_STORE_PATH` - DuckDB file, `:memory:` by default.
-- `FHIR_ALLOW_WRITE` - `false` (default) or `true`.
-- `FHIR_SCOPES` - comma-separated named grants that may search.
-- `FHIR_TERMINOLOGY_DIR` - directory of code system files.
-- `FHIR_INCUMBENT_PATH` - incumbent store for the replacement tools.
-- `FHIR_LOG_LEVEL` - `debug`, `info` (default), `warn`, `error`.
-- `FHIR_CALL_DEADLINE_MS` - per-call deadline, `30000` by default.
-- `FHIR_TRAIL_PATH`, `FHIR_TRAIL_KEY`, `FHIR_TRAIL_RETENTION_MS` - sealed
-  audit trail; a durable path needs the key.
-- `FHIR_SECRET_KEY` - opens `enc:v1:` values in key and credential variables.
-- `FHIR_EMR_*` - EMR backend: `BACKEND`, `BASE_URL`, `PROVIDER` (`generic`,
-  `smart`), `TIMEOUT_MS`, `RETRY_AFTER_MS`, `AUTH_SCHEME` (`none`, `bearer`,
-  `basic`, `smart`) and the `AUTH_*` credentials of that scheme.
-
-`--transport` and `--log-level` override the matching variables.
+[cols="2,3"]
+|===
+| `FHIR_TRANSPORT` | `stdio` (default), `http`, `https`; endpoint `/mcp`
+| `FHIR_HTTP_HOST`, `FHIR_HTTP_PORT` | `127.0.0.1`, `8080`
+| `FHIR_HTTP_ORIGINS` | allowed origins, required over http; others get 403
+| `FHIR_TLS_CERT_FILE`, `_KEY_FILE`, `_PASSPHRASE` | https
+| `FHIR_STORE_PATH` | DuckDB file, `:memory:` by default
+| `FHIR_ALLOW_WRITE` | `false` (default) or `true`
+| `FHIR_SCOPES` | named grants that may search
+| `FHIR_TERMINOLOGY_DIR` | code system files
+| `FHIR_INCUMBENT_PATH` | incumbent store
+| `FHIR_LOG_LEVEL` | `debug`, `info` (default), `warn`, `error`
+| `FHIR_CALL_DEADLINE_MS` | per-call deadline, `30000`
+| `FHIR_TRAIL_PATH`, `_KEY`, `_RETENTION_MS` | sealed audit trail; a durable path needs the key
+| `FHIR_SECRET_KEY` | opens `enc:v1:` values
+| `FHIR_EMR_*` | `BACKEND`, `BASE_URL`, `PROVIDER` (`generic`, `smart`), `TIMEOUT_MS`, `RETRY_AFTER_MS`, `AUTH_SCHEME` (`none`, `bearer`, `basic`, `smart`) and its `AUTH_*` credentials
+|===
 
 == Operations
-`npm run tools -- --help` lists the commands: `migrate`, `data`, `bench`,
-`scaffold`, `health`. Flags need the `--` so npm passes them on.
+`npm run tools -- --help`: `migrate`, `data`, `bench`, `scaffold`, `health`.
